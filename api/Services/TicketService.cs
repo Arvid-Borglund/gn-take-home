@@ -33,6 +33,8 @@ namespace TicketApi.Services
 
         public async Task<List<TicketResponse>> ListAsync(string status)
         {
+            // IQueryable: the query is only built here. Nothing is sent to the database
+            // until ToListAsync below, so the optional WHERE can be added first.
             IQueryable<TicketOverview> query = _db.TicketOverview;
 
             if (status != null)
@@ -166,6 +168,8 @@ namespace TicketApi.Services
                 var response = new VersionResponse();
                 response.VersionNo = version.VersionNo;
                 response.TimeOfVersion = version.TimeOfVersion;
+                // The jsonb column comes back as a JsonDocument; the response carries
+                // its root object. Clone() detaches it so it stays valid after the query.
                 response.Snapshot = version.Snapshot.RootElement.Clone();
                 result.Add(response);
             }
@@ -212,6 +216,7 @@ namespace TicketApi.Services
             return value.Trim();
         }
 
+        // Two ToResponse methods with the same name: C# picks one by the parameter type.
         private static TicketResponse ToResponse(TicketOverview overview)
         {
             var response = new TicketResponse();

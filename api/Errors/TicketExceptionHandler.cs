@@ -16,6 +16,8 @@ namespace TicketApi.Errors
             _problemDetails = problemDetails;
         }
 
+        // Signature dictated by IExceptionHandler (ValueTask is a lighter Task).
+        // Returns true when this handler wrote the response, false to let the next one try.
         public async ValueTask<bool> TryHandleAsync(
             HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
         {

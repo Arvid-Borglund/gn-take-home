@@ -22,6 +22,7 @@ namespace TicketApi.Controllers
         public async Task<ActionResult<TicketResponse>> Create([FromBody] CreateTicketRequest request)
         {
             TicketResponse ticket = await _tickets.CreateAsync(request);
+            // 201 Created with a Location header pointing at GET /tickets/{id}.
             return CreatedAtAction(nameof(Get), new { id = ticket.TicketId }, ticket);
         }
 

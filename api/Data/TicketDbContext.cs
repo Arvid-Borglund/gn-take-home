@@ -33,6 +33,7 @@ namespace TicketApi.Data
             modelBuilder.Entity<TicketVersion>(version =>
             {
                 version.ToTable("ticket_version");
+                // Composite key: EF's way of saying PRIMARY KEY (ticket_id, version_no).
                 version.HasKey(v => new { v.TicketId, v.VersionNo });
                 version.Property(v => v.Snapshot).HasColumnType("jsonb");
             });
