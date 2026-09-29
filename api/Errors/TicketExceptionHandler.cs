@@ -1,36 +1,61 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
-namespace TicketApi.Errors;
-
-// The one place where business-rule failures become HTTP responses.
-// The body is RFC 9457 ProblemDetails; clients (the agent) read "detail".
-public sealed class TicketExceptionHandler(IProblemDetailsService problemDetails) : IExceptionHandler
+namespace TicketApi.Errors
 {
-    public async ValueTask<bool> TryHandleAsync(
-        HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
+    // The one place where business-rule failures become HTTP responses.
+    // ASP.NET's exception middleware (app.UseExceptionHandler() in Program.cs)
+    // catches everything thrown during a request and calls TryHandleAsync.
+    // The body is RFC 9457 ProblemDetails; clients (the agent) read "detail".
+    public class TicketExceptionHandler : IExceptionHandler
     {
-        int? status = exception switch
-        {
-            TicketNotFoundException => StatusCodes.Status404NotFound,
-            TicketValidationException => StatusCodes.Status422UnprocessableEntity,
-            _ => null,
-        };
+        private readonly IProblemDetailsService _problemDetails;
 
-        if (status is null)
+        public TicketExceptionHandler(IProblemDetailsService problemDetails)
         {
-            return false; // not ours: the default handler answers 500
+            _problemDetails = problemDetails;
         }
 
-        httpContext.Response.StatusCode = status.Value;
-        return await problemDetails.TryWriteAsync(new ProblemDetailsContext
+        public async ValueTask<bool> TryHandleAsync(
+            HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
         {
-            HttpContext = httpContext,
-            ProblemDetails = new ProblemDetails
+            // 1. Which status code does this exception mean?
+            int statusCode;
+
+            if (exception is TicketNotFoundException)
             {
-                Status = status,
-                Detail = exception.Message,
-            },
-        });
+                statusCode = StatusCodes.Status404NotFound;
+            }
+            else if (exception is TicketValidationException)
+            {
+                statusCode = StatusCodes.Status422UnprocessableEntity;
+            }
+            else
+            {
+                // Not one of ours: say no, and the default handler answers 500.
+                return false;
+            }
+
+            // 2. Set the HTTP status line on the response being built.
+            httpContext.Response.StatusCode = statusCode;
+
+            // 3. Write the JSON body. The service fills in "title" and "type" from the
+            //    status code; we supply "status" and "detail".
+            var problem = new ProblemDetails();
+            problem.Status = statusCode;
+            problem.Detail = exception.Message;
+
+            // HttpContext can only be set in the initializer (framework rule).
+            var context = new ProblemDetailsContext
+            {
+                HttpContext = httpContext,
+                ProblemDetails = problem
+            };
+
+            bool written = await _problemDetails.TryWriteAsync(context);
+
+            // true tells the middleware the exception is handled.
+            return written;
+        }
     }
 }

@@ -1,11 +1,25 @@
-namespace TicketApi.Contracts;
+namespace TicketApi.Contracts
+{
+    // Request bodies. Nothing is validated here on purpose: TicketService checks
+    // the payload and answers 422 with a message, instead of ASP.NET's automatic 400.
 
-// Every field is nullable on purpose: the service validates the payload and
-// answers 422 with a message, instead of ASP.NET's automatic 400.
+    public class CreateTicketRequest
+    {
+        public string Title { get; set; }
+        public string Description { get; set; }
+    }
 
-public sealed record CreateTicketRequest(string? Title, string? Description);
+    // PATCH semantics: only the fields that are present (not null) are changed.
+    public class UpdateTicketRequest
+    {
+        public string Title { get; set; }
+        public string Description { get; set; }
+        public string Status { get; set; }
+        public string Resolution { get; set; }
+    }
 
-// PATCH semantics: only the fields that are present are changed.
-public sealed record UpdateTicketRequest(string? Title, string? Description, string? Status, string? Resolution);
-
-public sealed record AddCommentRequest(string? Body);
+    public class AddCommentRequest
+    {
+        public string Body { get; set; }
+    }
+}
