@@ -22,6 +22,8 @@ namespace TicketApi.Services
             var ticket = new Ticket();
             ticket.Title = Require(request.Title, "title");
             ticket.Description = Require(request.Description, "description");
+            ticket.Status = TicketStatus.OPEN; // a new ticket always starts open
+            ticket.Resolution = null;
 
             _db.Tickets.Add(ticket);
             await _db.SaveChangesAsync(); // the trigger records version 1

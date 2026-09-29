@@ -15,7 +15,6 @@ namespace TicketApi.Models
 
         public Ticket()
         {
-            Status = TicketStatus.OPEN;
             Versions = new List<TicketVersion>();
             Comments = new List<TicketComment>();
         }
