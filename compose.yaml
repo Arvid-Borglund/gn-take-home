@@ -17,5 +17,15 @@ services:
       timeout: 2s
       retries: 15
 
+  api:
+    build: ./api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__TicketDb: Host=db;Port=5432;Database=ticketdb;Username=ticket;Password=ticket
+    ports:
+      - "8080:8080"
+
 volumes:
   pgdata:

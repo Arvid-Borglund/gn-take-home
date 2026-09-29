@@ -1,0 +1,55 @@
+@host = http://localhost:8080
+
+### Create a ticket
+POST {{host}}/tickets
+Content-Type: application/json
+
+{
+  "title": "Keyboard not working",
+  "description": "No keys respond since this morning"
+}
+
+### All tickets
+GET {{host}}/tickets
+
+### Open tickets only
+GET {{host}}/tickets?status=OPEN
+
+### One ticket
+GET {{host}}/tickets/1
+
+### Invalid status: expect 422 with the valid values in "detail"
+PATCH {{host}}/tickets/1
+Content-Type: application/json
+
+{ "status": "PROGRESS" }
+
+### Resolve without a resolution: expect 422
+PATCH {{host}}/tickets/1
+Content-Type: application/json
+
+{ "status": "RESOLVED" }
+
+### Resolve properly
+PATCH {{host}}/tickets/1
+Content-Type: application/json
+
+{ "status": "RESOLVED", "resolution": "Replaced faulty cable" }
+
+### Unknown ticket: expect 404
+PATCH {{host}}/tickets/9999
+Content-Type: application/json
+
+{ "status": "CLOSED" }
+
+### Comment on the current version
+POST {{host}}/tickets/1/comments
+Content-Type: application/json
+
+{ "body": "Confirmed working after the cable swap" }
+
+### Version history
+GET {{host}}/tickets/1/versions
+
+### Delete (cascades to versions and comments)
+DELETE {{host}}/tickets/1
