@@ -1,0 +1,21 @@
+name: gn-ticketing
+
+services:
+  db:
+    build: ./db
+    environment:
+      POSTGRES_USER: ticket
+      POSTGRES_PASSWORD: ticket
+      POSTGRES_DB: ticketdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticket -d ticketdb"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+volumes:
+  pgdata:
