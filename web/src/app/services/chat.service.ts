@@ -92,8 +92,10 @@ export class ChatService {
           signal: controller.signal
         });
 
+        // The server refused the request, so no turn was started: not an event of a
+        // reply, but an answer about the request itself.
         if (!response.ok || response.body === null) {
-          subscriber.next({ event: 'error', data: { message: await this.errorText(response) } });
+          subscriber.next({ event: 'rejected', data: { message: await this.errorText(response) } });
           return;
         }
 

@@ -19,6 +19,7 @@ import { Conversation } from '../../models/chat.model';
       <span class="conv-meta">
         {{ conversation.updated_at | date:'d MMM HH:mm' }}
         <ng-container *ngIf="conversation.failed"> · stopped on an error</ng-container>
+        <ng-container *ngIf="conversation.running"> · working</ng-container>
       </span>
       <button type="button" class="conv-delete" title="Remove the conversation"
               (click)="remove(conversation, $event)">×</button>

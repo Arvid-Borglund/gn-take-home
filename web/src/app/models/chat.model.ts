@@ -51,6 +51,9 @@ export interface Conversation {
   updated_at: string;
   /** A turn crashed in this conversation. It takes no more messages. */
   failed: boolean;
+  /** The agent is working on a message in this conversation right now. A turn runs
+   *  on the server until it is done, also when the browser that started it is gone. */
+  running: boolean;
 }
 
 export interface ConversationDetail extends Conversation {
@@ -64,8 +67,15 @@ export interface ChatHealth {
   model: string;
 }
 
-/** The events of a reply, in the order the server sends them. */
+/**
+ * The events of a reply, in the order the server sends them.
+ *
+ * 'rejected' is the exception: it does not come from the server's stream. ChatService
+ * makes it when the server refuses the request itself (for example 409, the agent is
+ * still working on the previous message), so that nothing was started.
+ */
 export type ChatEvent =
+  | { event: 'rejected'; data: { message: string } }
   | { event: 'tool_call'; data: ChatStep }
   | { event: 'tool_result'; data: ChatStep }
   | { event: 'answer'; data: { content: string; tickets: TicketRef[] } }
