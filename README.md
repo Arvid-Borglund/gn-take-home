@@ -8,6 +8,7 @@ description of how the API would run on Azure.
 |---|---|---|
 | 1 | Ticketing API: ASP.NET Core and EF Core on PostgreSQL | `api/`, `db/` |
 | 2 | GenAI agent: LangGraph in Python, with a command-line interface | `agent/` |
+| 2, bonus | MCP server for the ticketing API, with the agent as its client | `agent/mcp_server.py`, `agent/mcp_client.py` |
 | 3 | PR review bot: a Python script run by GitHub Actions | `pr_review/`, `.github/workflows/pr-review.yml` |
 | 4 | Terraform skeleton for Azure | `infra/` |
 
@@ -62,6 +63,13 @@ has to be installed: the database, the API and the agent each run in their own c
    ```
 
    [docs/demo.md](docs/demo.md) is the output of that command.
+
+   Add `--mcp` to either command and the agent reaches the API through the MCP server
+   instead (see [Bonus: the MCP server](#bonus-the-mcp-server)):
+
+   ```bash
+   docker compose run --rm agent python main.py --demo --mcp
+   ```
 
 5. Run the API tests (optional).
 
@@ -193,6 +201,81 @@ API. The agent therefore sets `reasoning_effort="none"` (see `build_llm` in
 In the chat, `new` starts a new conversation, `menu` shows the scenarios again and
 `quit` exits.
 
+## Bonus: the MCP server
+
+```
+agent  --MCP over stdio-->  mcp_server.py  --HTTP-->  ticket API
+```
+
+`agent/mcp_server.py` exposes the ticketing API as an MCP server, built with the official
+MCP Python SDK. With `--mcp` the agent takes its tools from that server instead of
+calling the API itself:
+
+```bash
+docker compose run --rm agent python main.py --mcp
+docker compose run --rm agent python main.py --demo --mcp
+```
+
+[docs/demo-mcp.md](docs/demo-mcp.md) is the output of the second command.
+
+The four steps of the task:
+
+1. **The server.** An `MCPServer` from the SDK, run over stdio: the client starts the
+   file as a subprocess and the two talk over its stdin and stdout. No port is opened
+   and no extra container is needed.
+2. **The tools.** One tool per endpoint, the same seven as in Part 2, with the same
+   names, descriptions and arguments. Each tool also carries the MCP annotations that
+   say what it does to the data: the three reading tools are marked read-only, and
+   `delete_ticket` is marked destructive.
+3. **The handlers.** A handler calls the same HTTP client as the direct tools
+   (`agent/api_client.py`) and returns the same text. A 4xx from the API becomes a tool
+   result with the API's `detail` message as text and with `isError` set, which is how
+   MCP says that the call was made and failed. On the wire:
+
+   ```json
+   {"content": [{"type": "text", "text": "API ERROR 404: Ticket 424242 does not exist."}], "isError": true}
+   ```
+
+4. **The agent as MCP client** (`agent/mcp_client.py`). The agent starts the server,
+   asks it which tools it has (`tools/list`) and wraps each one as a LangChain tool
+   with the name, the description and the argument schema the server gave. When the
+   model calls a tool, the wrapper forwards the call (`tools/call`) and hands the text
+   of the result back. The client side is written directly on the SDK, without an
+   adapter library, so those three steps are visible in the code.
+
+The graph is the same on both paths: it gets a list of tools and does not know where
+they come from. What follows from that:
+
+- **The error handling is unchanged.** The model reads the same `API ERROR 422: ...`
+  text and the same rules in the system prompt apply.
+- **The confirmation before a delete stays in the agent.** The server carries out a
+  delete when it is asked to. Asking the user first is the client's job, and the
+  `confirm` node does it the same way on both paths.
+- **The server gets only what it needs.** A subprocess started over stdio does not
+  inherit the agent's environment. The agent passes the address of the API on, and
+  not the model key.
+
+The direct tools are still the default, so the main path of Part 2 has one moving part
+less. That means the seven tools are written down twice, in `agent/tools.py` and in
+`agent/mcp_server.py`. Two checks keep the two paths the same:
+
+```bash
+docker compose run --rm agent python check_mcp.py
+docker compose run --rm agent python evals/run.py --mcp
+```
+
+The first starts the server, lists its tools and compares them with the direct tools:
+names, descriptions and arguments. It needs no model and CI runs it. The second runs
+the evals below with the tools taken from the MCP server; all 14 cases pass on both
+paths.
+
+Other MCP clients can use the server too. For a client that starts its servers by
+command, the command is:
+
+```bash
+docker compose run --rm -T agent python mcp_server.py
+```
+
 ## The web interface
 
 The assignment asks for a command line, and that is the main way in. The web interface
@@ -297,7 +380,7 @@ Each test creates the ticket it needs and removes it afterwards.
 | Job | What it does |
 |---|---|
 | API tests | Starts the database and the API with the same compose command as above, and runs the tests. |
-| Agent image | Builds the agent image and checks that the program and the server load. It makes no model call; the evals below do that, in a workflow of their own. |
+| Agent image | Builds the agent image, checks that the program and the server load, and checks that the MCP server offers the same tools as the direct ones. It makes no model call; the evals below do that, in a workflow of their own. |
 | Terraform validate | `terraform fmt -check`, `init` and `validate` on `infra/`. |
 | API image | Builds the API image. On main it is pushed to the GitHub container registry, tagged with the commit SHA. |
 | Agent and web images | Builds the agent image and the web image, which is also the check that the Angular app compiles. On main they are pushed like the API image. |
@@ -444,12 +527,12 @@ GitHub secrets, so a server that has been taken over cannot delete its own backu
 ```
 api/          the ticketing API (C#)
 db/           the database image and the schema
-agent/        the agent, its CLI and its web server (Python)
+agent/        the agent, its CLI, its web server and the MCP server (Python)
 web/          the web interface (Angular, served by nginx)
 tests/        tests of the API over HTTP (Python)
 pr_review/    the PR review script (Python)
 infra/        Terraform for Azure (part 4), and in hetzner/ for the real server
-docs/         the demo transcript
+docs/         the demo transcripts
 config/       the Kamal deploy configuration
 .kamal/       the secrets Kamal expects (names only, no values)
 scripts/      one-time setup of the pipeline's access to the server
