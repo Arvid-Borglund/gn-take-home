@@ -1,0 +1,5 @@
+# Shell scripts and the nginx files are copied into Linux containers. They keep LF line
+# endings also in a checkout on Windows, where git would otherwise write CRLF and the
+# scripts would fail to run.
+*.sh          text eol=lf
+web/nginx/**  text eol=lf

@@ -1,0 +1,4 @@
+{
+  "/api/chat": { "target": "http://localhost:8000", "secure": false },
+  "/api/tickets": { "target": "http://localhost:8080", "secure": false, "pathRewrite": { "^/api/tickets": "/tickets" } }
+}

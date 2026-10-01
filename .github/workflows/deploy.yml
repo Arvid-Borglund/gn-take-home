@@ -1,14 +1,19 @@
-# Deploys the API to the server with Kamal.
+# Deploys the API, the agent server and the web interface to the server with Kamal.
 #
 # Started by hand: Actions, Deploy, Run workflow. That click is the approval. Nothing
 # is ever deployed automatically.
 #
-# A deploy does not build. It takes a commit SHA and points the server at the image CI
+# A deploy does not build. It takes a commit SHA and points the server at the images CI
 # already pushed for that commit. Rolling back is deploying an older SHA.
 #
-# The settings live in config/deploy.yml. Two secrets are needed: SSH_PRIVATE_KEY on
-# the repository (the backup workflow uses it too) and POSTGRES_PASSWORD in the GitHub
-# environment "production". scripts/setup-deploy-access.sh creates both.
+# The settings live in config/: deploy.yml (the API and its database), deploy.agent.yml
+# and deploy.web.yml. The secrets:
+#   SSH_PRIVATE_KEY       on the repository (the backup workflow uses it too)
+#   POSTGRES_PASSWORD     in the GitHub environment "production"
+#   BASIC_AUTH_HTPASSWD   in "production": the logins to the web interface, as
+#                         htpasswd lines (see web/nginx/40-htpasswd.sh)
+#   AZURE_OPENAI_API_KEY  on the repository (the PR review bot and the evals use it too)
+# scripts/setup-deploy-access.sh creates the first two.
 
 name: Deploy
 
@@ -38,7 +43,7 @@ jobs:
     # branch rule: only runs started from main get this far.
     environment:
       name: production
-      url: https://lundona.com/swagger
+      url: https://lundona.com
     # Never two deploys at once, and never cancel one that is running: a half-finished
     # deploy leaves containers in an undefined state.
     concurrency:
@@ -49,6 +54,8 @@ jobs:
       # Read by .kamal/secrets.
       KAMAL_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
       POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+      BASIC_AUTH_HTPASSWD: ${{ secrets.BASIC_AUTH_HTPASSWD }}
     steps:
       - uses: actions/checkout@v7
 
@@ -59,15 +66,27 @@ jobs:
             exit 1
           fi
 
-      # Fail before any contact with the server if CI has not built this commit.
-      - name: Check that the image exists in GHCR
+      # Fail before any contact with the server if something is missing.
+      #
+      # The web interface must never come up without its login: behind it is a chat
+      # where every message is a call to the language model.
+      - name: Check that the logins to the web interface are set
         run: |
-          echo "$KAMAL_REGISTRY_PASSWORD" | docker login ghcr.io -u arvid-borglund --password-stdin
-          IMAGE="ghcr.io/arvid-borglund/gn-take-home/api:$VERSION"
-          if ! docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
-            echo "::error::$IMAGE does not exist. Wait for the CI run of that commit to finish."
+          if [ -z "$BASIC_AUTH_HTPASSWD" ]; then
+            echo "::error::The secret BASIC_AUTH_HTPASSWD is not set in the environment production."
             exit 1
           fi
+
+      - name: Check that the images exist in GHCR
+        run: |
+          echo "$KAMAL_REGISTRY_PASSWORD" | docker login ghcr.io -u arvid-borglund --password-stdin
+          for NAME in api agent web; do
+            IMAGE="ghcr.io/arvid-borglund/gn-take-home/$NAME:$VERSION"
+            if ! docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
+              echo "::error::$IMAGE does not exist. Wait for the CI run of that commit to finish."
+              exit 1
+            fi
+          done
 
       - uses: ruby/setup-ruby@v1
         with:
@@ -104,13 +123,39 @@ jobs:
       - name: Log the server in to the registry
         run: kamal registry login
 
-      - name: Deploy
+      # The order is the order they depend on each other: the agent server calls the
+      # API, and the web interface passes requests on to both.
+      - name: Deploy the API
         run: kamal deploy --skip-push --version "$VERSION"
 
-      # The first request over HTTPS is also what makes the proxy fetch its certificate,
-      # so the first attempts may fail.
-      - name: Check that the API answers
+      - name: Deploy the agent server
+        run: kamal deploy -c config/deploy.agent.yml --skip-push --version "$VERSION"
+
+      # The first deploy put the API itself behind the proxy, on the host names the web
+      # interface has now. The proxy keeps that registration until it is told to drop
+      # it, and it does not give a host name to a second service. This step does
+      # nothing when the registration is not there.
+      - name: Free the host names if the API still holds them
+        run: kamal server exec 'docker exec kamal-proxy kamal-proxy remove ticketing-api-web || true'
+
+      - name: Deploy the web interface
+        run: kamal deploy -c config/deploy.web.yml --skip-push --version "$VERSION"
+
+      # The whole chain from outside: proxy, nginx, API, database. /health is one of
+      # the two paths that need no login. The first request over HTTPS is also what
+      # makes the proxy fetch its certificate, so the first attempts may fail.
+      - name: Check that the API answers through the web interface
         run: |
           curl --fail --silent --show-error \
             --retry 10 --retry-delay 5 --retry-all-errors \
             https://lundona.com/health
+
+      # 401 is the right answer here: the page exists and asks for a login. 200 would
+      # mean that the site is open, and that fails the deploy.
+      - name: Check that the site asks for a login
+        run: |
+          STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' https://lundona.com/)
+          if [ "$STATUS" != "401" ]; then
+            echo "::error::https://lundona.com/ answered $STATUS without a login, expected 401."
+            exit 1
+          fi

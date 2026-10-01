@@ -45,6 +45,38 @@ services:
     stdin_open: true
     tty: true
 
+  # The web interface, started on request:  docker compose --profile web up -d --build
+  #
+  # agent-server is the same image and the same graph as the agent above, started as an
+  # HTTP server instead of a command-line program. web is nginx with the built Angular
+  # app; it is the only one of the two that is reachable from outside.
+  agent-server:
+    build: ./agent
+    profiles: ["web"]
+    command: ["python", "server.py"]
+    depends_on:
+      - api
+    environment:
+      TICKET_API_URL: http://api:8080
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-}
+
+  web:
+    build: ./web
+    profiles: ["web"]
+    depends_on:
+      - api
+      - agent-server
+    environment:
+      # Open locally. "on" asks for a password, and then BASIC_AUTH_HTPASSWD must be
+      # set too (see web/nginx/40-htpasswd.sh). The deployed site runs with "on".
+      SITE_PRIVATE: ${SITE_PRIVATE:-off}
+      BASIC_AUTH_HTPASSWD: ${BASIC_AUTH_HTPASSWD:-}
+    ports:
+      - "${WEB_PORT:-8081}:80"
+
   # Tests of the API over HTTP. Like the agent, they are run on request:
   #   docker compose run --rm tests
   tests:

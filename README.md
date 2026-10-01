@@ -13,8 +13,9 @@ description of how the API would run on Azure.
 
 Around the four parts there is what it takes to run the system for real: tests of the
 API, evals of the agent, a CI workflow, a deploy to a server with Kamal, Terraform for
-that server with remote state, and a nightly database backup. Each has its own section
-below.
+that server with remote state, and a nightly database backup. There is also a web
+interface to the agent (`web/`), next to the command line the assignment asks for. Each
+has its own section below.
 
 ## Run it
 
@@ -68,14 +69,24 @@ has to be installed: the database, the API and the agent each run in their own c
    docker compose run --rm tests
    ```
 
+6. Start the web interface (optional).
+
+   ```bash
+   docker compose --profile web up -d --build
+   ```
+
+   It is at http://localhost:8081. The first build takes a few minutes, because it
+   installs the Angular toolchain inside the image. See
+   [The web interface](#the-web-interface).
+
 To stop everything and remove the database volume:
 
 ```bash
-docker compose down -v
+docker compose --profile web down -v
 ```
 
-Ports 8080 and 5432 must be free. If one of them is taken, set `API_PORT` or `DB_PORT`
-in `.env` (see `.env.example`).
+Ports 8080 and 5432 must be free, and 8081 for the web interface. If one of them is
+taken, set `API_PORT`, `DB_PORT` or `WEB_PORT` in `.env` (see `.env.example`).
 
 ## Part 1: the ticketing API
 
@@ -182,6 +193,52 @@ API. The agent therefore sets `reasoning_effort="none"` (see `build_llm` in
 In the chat, `new` starts a new conversation, `menu` shows the scenarios again and
 `quit` exits.
 
+## The web interface
+
+The assignment asks for a command line, and that is the main way in. The web interface
+is the same agent behind a second front: the graph, the tools and the prompt are not
+changed for it.
+
+```
+browser -> nginx (web/) -+- /              the Angular app
+                         +- /api/chat/     the agent server (agent/server.py) -> the graph
+                         +- /api/tickets/  the ticket API, GET only
+```
+
+What is in it:
+
+- **The chat** is the main area. Above every answer are the tool calls the agent made
+  and what the API returned, so an error can be followed from the API's message to the
+  agent's answer. The requests from the assignment are one click each.
+- **The history** to the left lists the conversations.
+- **Ticket numbers in an answer are links**, and the tickets an answer is about are
+  listed under it. A click opens the ticket in a viewer next to the chat, one tab per
+  ticket.
+- **Version history** in the viewer is a timeline: one section per version of the
+  ticket, coloured by its status, with a pin for every comment at the time it was
+  written. A click on a section shows the ticket as it was in that version.
+- **A delete** shows the agent's question with a Delete and a Keep it button. It is the
+  same stop in the graph as the `[y/N]` of the command line.
+
+How it is built:
+
+- `agent/server.py` puts the graph behind HTTP with FastAPI. A message is a POST, and
+  the answer is a stream of server-sent events, one per thing that happens in the
+  graph: a tool call, a tool result, the answer, or the question before a delete. The
+  loop that reads the graph is the one the command line has, with "send to the browser"
+  where the command line prints.
+- **The viewer only reads.** It gets the tickets straight from the ticket API, through
+  nginx, and nginx refuses everything but GET on that path. Every change to a ticket
+  goes through the agent.
+- **A link is never taken from the model's text.** A ticket number becomes a link only
+  when a tool call in the same turn was about that ticket and the API did not answer
+  that it is missing (`agent/transcript.py`). A number the model made up stays text.
+- **The conversations live in the memory of the server process**, the list of them in
+  `server.py` and their messages in the graph's checkpointer. They survive a reload of
+  the page, not a restart of the container.
+- `web/` is an Angular app. Its image builds it with Node and serves the result with
+  nginx; Node is not in the final image.
+
 ## Part 3: the PR review bot
 
 `.github/workflows/pr-review.yml` runs on every pull request that is opened or gets new
@@ -240,12 +297,13 @@ Each test creates the ticket it needs and removes it afterwards.
 | Job | What it does |
 |---|---|
 | API tests | Starts the database and the API with the same compose command as above, and runs the tests. |
-| Agent image | Builds the agent image and checks that the program loads. It makes no model call; the evals below do that, in a workflow of their own. |
+| Agent image | Builds the agent image and checks that the program and the server load. It makes no model call; the evals below do that, in a workflow of their own. |
 | Terraform validate | `terraform fmt -check`, `init` and `validate` on `infra/`. |
 | API image | Builds the API image. On main it is pushed to the GitHub container registry, tagged with the commit SHA. |
+| Agent and web images | Builds the agent image and the web image, which is also the check that the Angular app compiles. On main they are pushed like the API image. |
 
-The image is built once per commit and never rebuilt for a deploy: a deploy points at
-one of the published tags.
+The images are built once per commit and never rebuilt for a deploy: a deploy points at
+the published tags of one commit.
 
 ## Evals
 
@@ -281,22 +339,40 @@ Without a model key in the repository it skips, with a notice.
 
 ## Deploy
 
-`.github/workflows/deploy.yml` deploys the API and its database to a server with
-[Kamal](https://kamal-deploy.org), over SSH. It is started by hand (Actions, Deploy, Run
-workflow). That click is the approval; nothing is deployed automatically.
+`.github/workflows/deploy.yml` deploys the API with its database, the agent server and
+the web interface to a server with [Kamal](https://kamal-deploy.org), over SSH. It is
+started by hand (Actions, Deploy, Run workflow). That click is the approval; nothing is
+deployed automatically.
 
 ```
-pull request     CI: tests, image build, Terraform validation (and the evals, when the agent changed)
-merge to main    CI again, and the API image is pushed to GHCR, tagged with the commit SHA
-Run workflow     Kamal points the server at the image of one commit
+pull request     CI: tests, image builds, Terraform validation (and the evals, when the agent changed)
+merge to main    CI again, and the images are pushed to GHCR, tagged with the commit SHA
+Run workflow     Kamal points the server at the images of one commit
 ```
 
-What a deploy does (`config/deploy.yml`):
+What runs on the server (`config/deploy.yml`, `deploy.agent.yml`, `deploy.web.yml`):
 
-- The server pulls the image of the chosen commit. Nothing is built.
-- Kamal starts the new container next to the old one. kamal-proxy, which terminates TLS
-  with a Let's Encrypt certificate, sends traffic to the new container only when
-  `GET /health` answers 200. Then the old one is stopped.
+```
+internet -> kamal-proxy (TLS) -> web: nginx, asks for the login -+- the Angular app
+                                                                 +- agent server -> language model
+                                                                 +- API -> PostgreSQL
+```
+
+- **The web container is the only way in.** kamal-proxy terminates TLS with a Let's
+  Encrypt certificate and knows one service, the web interface. The API and the agent
+  server have no address of their own: nginx passes requests on to them over Docker's
+  network.
+- **Everything is behind one login.** nginx asks for a user name and a password (basic
+  auth) on the app, the chat, the API and its Swagger page. Behind the chat is a
+  language model that costs money per message, so it is not left open. Two paths need
+  no login: `/up`, which the proxy's health check uses, and `/health`, which says
+  whether the API reaches its database. The web container refuses to start when it is
+  told to protect the site and has no logins, and the deploy fails if the front page
+  answers anything but 401 without one.
+- The server pulls the images of the chosen commit. Nothing is built.
+- For the web interface, Kamal starts the new container next to the old one, and the
+  proxy sends traffic to the new one only when its health check answers 200. Then the
+  old one is stopped.
 - PostgreSQL runs as its own container on the same server. No port is published: only
   the API reaches it, over Docker's network. The schema is the same
   `db/init/001_schema.sql` as locally.
@@ -306,10 +382,13 @@ What has to exist before the first deploy:
 
 - the secret `SSH_PRIVATE_KEY`: a key pair made for the pipeline, with the public half
   in the server's `authorized_keys`,
-- a GitHub environment named `production`, open to runs from main only, with the secret
-  `POSTGRES_PASSWORD`,
+- a GitHub environment named `production`, open to runs from main only, with the
+  secrets `POSTGRES_PASSWORD` and `BASIC_AUTH_HTPASSWD`. The second one holds the
+  logins to the web interface as htpasswd lines; `web/nginx/40-htpasswd.sh` says how to
+  make one,
+- the secret `AZURE_OPENAI_API_KEY`, the same one the PR review bot uses,
 - the server's host key in `.github/known_hosts`,
-- DNS for the host names in `config/deploy.yml`, pointing at the server.
+- DNS for the host names in `config/deploy.web.yml`, pointing at the server.
 
 `scripts/setup-deploy-access.sh` does the first two. The first run is started with
 `bootstrap` ticked: it installs Docker on the server and starts the database.
@@ -365,7 +444,8 @@ GitHub secrets, so a server that has been taken over cannot delete its own backu
 ```
 api/          the ticketing API (C#)
 db/           the database image and the schema
-agent/        the agent and its CLI (Python)
+agent/        the agent, its CLI and its web server (Python)
+web/          the web interface (Angular, served by nginx)
 tests/        tests of the API over HTTP (Python)
 pr_review/    the PR review script (Python)
 infra/        Terraform for Azure (part 4), and in hetzner/ for the real server
@@ -374,5 +454,5 @@ config/       the Kamal deploy configuration
 .kamal/       the secrets Kamal expects (names only, no values)
 scripts/      one-time setup of the pipeline's access to the server
 .github/      the workflows: CI, evals, PR review, deploy, Terraform and backup
-compose.yaml  database, API, agent and tests as containers
+compose.yaml  database, API, agent, tests and the web interface as containers
 ```

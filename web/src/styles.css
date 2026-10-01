@@ -1,0 +1,35 @@
+/* The palette: orange, dark teal, cream and warm grey. Every component takes its
+   colours from these variables. */
+:root {
+  --orange: #F2691E;
+  --orange-dark: #C4500E;
+  --teal-dark: #0A2E34;
+  --teal: #0F3D44;
+  --teal-mid: #1A5C66;
+  --teal-soft: #D5E3E2;
+  --cream: #F6F1E6;
+  --cream-light: #FCFAF5;
+  --grey: #6B7475;
+  --grey-light: #DDD8CC;
+  --ink: #23292A;
+  --mono: Consolas, "SF Mono", Menlo, monospace;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  background: var(--cream);
+  color: var(--ink);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button {
+  font-family: inherit;
+}
