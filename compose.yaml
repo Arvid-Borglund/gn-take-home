@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ticket
       POSTGRES_DB: ticketdb
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -25,7 +25,7 @@ services:
     environment:
       ConnectionStrings__TicketDb: Host=db;Port=5432;Database=ticketdb;Username=ticket;Password=ticket
     ports:
-      - "8080:8080"
+      - "${API_PORT:-8080}:8080"
 
   # The agent is a command-line program, not a server, so "docker compose up" does not
   # start it (the profile keeps it out). Run it with:  docker compose run --rm agent
