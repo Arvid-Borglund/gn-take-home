@@ -27,7 +27,7 @@ from langgraph.types import Command
 from api_client import TicketApiClient
 from config import ConfigError, Settings, load_settings
 from graph import TicketAgent
-from mcp_client import connect_to_mcp_server, load_mcp_tools
+from mcp_client import McpConnection
 from tools import build_tools
 
 # One step is one node run. A normal request takes three (agent, tools, agent). This is
@@ -290,12 +290,12 @@ async def run_cli(llm, tools: list, client: TicketApiClient, demo_mode: bool) ->
         await chat(graph, client)
 
 
-def describe_mcp_tools(mcp_client, tools: list) -> str:
+def describe_mcp_tools(connection: McpConnection, tools: list) -> str:
     """One line that says where the tools come from. Printed when the agent starts."""
     names = []
     for tool in tools:
         names.append(tool.name)
-    return f"(MCP server '{mcp_client.server_info.name}' offers {len(tools)} tools: " + ", ".join(names) + ")"
+    return f"(MCP server '{connection.server_name}' offers {len(tools)} tools: " + ", ".join(names) + ")"
 
 
 async def run(settings: Settings, client: TicketApiClient, demo_mode: bool, use_direct_tools: bool) -> None:
@@ -309,12 +309,16 @@ async def run(settings: Settings, client: TicketApiClient, demo_mode: bool, use_
         await run_cli(llm, tools, client, demo_mode)
         return
 
-    # "async with" starts the MCP server as a subprocess and stops it again when the
-    # block is left, so the server lives exactly as long as the CLI runs.
-    async with connect_to_mcp_server(settings.ticket_api_url) as mcp_client:
-        tools = await load_mcp_tools(mcp_client)
-        print(describe_mcp_tools(mcp_client, tools))
+    # start() starts the MCP server as a subprocess. "finally" stops it again however
+    # the CLI ends, so the server lives exactly as long as the CLI runs.
+    connection = McpConnection(settings.ticket_api_url)
+    await connection.start()
+    try:
+        tools = await connection.load_tools()
+        print(describe_mcp_tools(connection, tools))
         await run_cli(llm, tools, client, demo_mode)
+    finally:
+        await connection.stop()
 
 
 def main() -> int:

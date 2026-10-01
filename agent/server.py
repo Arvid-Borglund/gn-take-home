@@ -40,7 +40,7 @@ from api_client import TicketApiClient
 from config import ConfigError, Settings, load_settings
 from graph import TicketAgent
 from main import MAX_GRAPH_STEPS, SCENARIOS, build_llm, describe_mcp_tools, fill_in_ids, wait_for_api
-from mcp_client import connect_to_mcp_server, load_mcp_tools
+from mcp_client import McpConnection
 from tools import build_tools
 from transcript import Reply, build_chat_messages, reply_in_progress
 
@@ -305,12 +305,18 @@ async def run(settings: Settings, client: TicketApiClient, use_direct_tools: boo
         await serve(llm, tools, client, settings, "direct")
         return
 
-    # The MCP server is started here, once, and every conversation uses it. The block
-    # is left when the HTTP server stops, and that stops the MCP server too.
-    async with connect_to_mcp_server(settings.ticket_api_url) as mcp_client:
-        tools = await load_mcp_tools(mcp_client)
-        print(describe_mcp_tools(mcp_client, tools))
+    # The MCP server is started here, and every conversation uses it. If it dies while
+    # this server runs, the connection starts it again before the next tool call
+    # (mcp_client.py), so the conversations in this process are not lost. "finally"
+    # stops the MCP server when the HTTP server stops.
+    connection = McpConnection(settings.ticket_api_url)
+    await connection.start()
+    try:
+        tools = await connection.load_tools()
+        print(describe_mcp_tools(connection, tools))
         await serve(llm, tools, client, settings, "mcp")
+    finally:
+        await connection.stop()
 
 
 def main() -> int:

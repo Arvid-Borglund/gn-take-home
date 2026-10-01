@@ -17,7 +17,7 @@ import sys
 
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
-from mcp_client import connect_to_mcp_server, load_mcp_tools
+from mcp_client import McpConnection
 from tools import build_tools
 
 
@@ -37,8 +37,12 @@ def as_the_model_sees_it(tools: list) -> dict:
 
 async def check() -> int:
     # Listing the tools does not call the API, so the address is never used.
-    async with connect_to_mcp_server("http://localhost:8080") as mcp_client:
-        mcp_tools = await load_mcp_tools(mcp_client)
+    connection = McpConnection("http://localhost:8080")
+    await connection.start()
+    try:
+        mcp_tools = await connection.load_tools()
+    finally:
+        await connection.stop()
 
     # The same goes for the direct tools: without a client they can still be listed.
     direct_tools = build_tools(None)

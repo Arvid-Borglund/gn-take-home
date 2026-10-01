@@ -33,7 +33,7 @@ from api_client import TicketApiClient  # noqa: E402
 from config import ConfigError, load_settings  # noqa: E402
 from graph import TicketAgent  # noqa: E402
 from main import MAX_GRAPH_STEPS, build_llm, text_of, wait_for_api  # noqa: E402
-from mcp_client import connect_to_mcp_server, load_mcp_tools  # noqa: E402
+from mcp_client import McpConnection  # noqa: E402
 from tools import build_tools  # noqa: E402
 
 CASES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.yaml")
@@ -350,9 +350,13 @@ async def run_suite(arguments) -> int:
         return await run_cases(cases, llm, tools, client, arguments, settings)
 
     # The tools come from the MCP server, as when the agent runs normally.
-    async with connect_to_mcp_server(settings.ticket_api_url) as mcp_client:
-        tools = await load_mcp_tools(mcp_client)
+    connection = McpConnection(settings.ticket_api_url)
+    await connection.start()
+    try:
+        tools = await connection.load_tools()
         return await run_cases(cases, llm, tools, client, arguments, settings)
+    finally:
+        await connection.stop()
 
 
 async def run_cases(cases: list, llm, tools: list, client: TicketApiClient, arguments, settings) -> int:
