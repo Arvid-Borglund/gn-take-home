@@ -2,6 +2,9 @@
 
     python main.py          chat: type a request, or the number of an example scenario
     python main.py --demo   runs every example scenario once, without any input
+    python main.py --mcp    the same, but the tools come from the MCP server
+                            (mcp_server.py) instead of calling the API directly;
+                            can be combined with --demo
 
 The CLI prints each tool call and each tool result as they happen, so it is visible
 what the agent did and what the API answered, not only what the agent says afterwards.
@@ -20,6 +23,7 @@ from langgraph.types import Command
 from api_client import TicketApiClient
 from config import ConfigError, Settings, load_settings
 from graph import TicketAgent
+from mcp_client import connect_to_mcp_server, load_mcp_tools
 from tools import build_tools
 
 # One step is one node run. A normal request takes three (agent, tools, agent). This is
@@ -273,8 +277,41 @@ async def demo(graph, client: TicketApiClient) -> None:
         await run_turn_safely(graph, make_config(number), user_text, True)
 
 
+async def run_cli(llm, tools: list, client: TicketApiClient, demo_mode: bool) -> None:
+    graph = TicketAgent(llm, tools).build()
+
+    if demo_mode:
+        await demo(graph, client)
+    else:
+        await chat(graph, client)
+
+
+async def run(settings: Settings, client: TicketApiClient, demo_mode: bool, use_mcp: bool) -> None:
+    """Gets the tools, either the direct ones or the MCP server's, and runs the CLI.
+    The graph is the same in both cases: it only sees a list of tools."""
+    llm = build_llm(settings)
+
+    if not use_mcp:
+        tools = build_tools(client)
+        await run_cli(llm, tools, client, demo_mode)
+        return
+
+    # "async with" starts the MCP server as a subprocess and stops it again when the
+    # block is left, so the server lives exactly as long as the CLI runs.
+    async with connect_to_mcp_server(settings.ticket_api_url) as mcp_client:
+        tools = await load_mcp_tools(mcp_client)
+
+        names = []
+        for tool in tools:
+            names.append(tool.name)
+        print(f"(MCP server '{mcp_client.server_info.name}' offers {len(tools)} tools: " + ", ".join(names) + ")")
+
+        await run_cli(llm, tools, client, demo_mode)
+
+
 def main() -> int:
     demo_mode = "--demo" in sys.argv[1:]
+    use_mcp = "--mcp" in sys.argv[1:]
 
     try:
         settings = load_settings()
@@ -287,14 +324,16 @@ def main() -> int:
         print(f"The ticket API does not answer at {settings.ticket_api_url}. Start it with: docker compose up -d")
         return 1
 
-    llm = build_llm(settings)
-    tools = build_tools(client)
-    graph = TicketAgent(llm, tools).build()
+    try:
+        asyncio.run(run(settings, client, demo_mode, use_mcp))
+    except Exception as error:
+        if not use_mcp:
+            raise
+        # A failed turn is handled inside the chat. What ends up here is the MCP
+        # server not starting, or stopping while the agent was running.
+        print(f"The MCP server could not be used ({type(error).__name__}). Without --mcp the agent calls the API directly.")
+        return 1
 
-    if demo_mode:
-        asyncio.run(demo(graph, client))
-    else:
-        asyncio.run(chat(graph, client))
     return 0
 
 
