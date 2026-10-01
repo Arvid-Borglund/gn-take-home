@@ -18,6 +18,9 @@ that server with remote state, and a nightly database backup. There is also a we
 interface to the agent (`web/`), next to the command line the assignment asks for. Each
 has its own section below.
 
+The whole system runs at https://lundona.com, behind a login. The user name and the
+password came with the link to this repository.
+
 ## Run it
 
 You need Docker with Compose, and the Azure OpenAI key from the assignment. Nothing else
@@ -438,6 +441,10 @@ Without a model key in the repository it skips, with a notice.
 the web interface to a server with [Kamal](https://kamal-deploy.org), over SSH. It is
 started by hand (Actions, Deploy, Run workflow). That click is the approval; nothing is
 deployed automatically.
+
+The result is at https://lundona.com. The first deploy, onto an empty server, installed
+Docker, started the database with the schema and brought up the three services in three
+minutes.
 
 ```
 pull request     CI: tests, image builds, Terraform validation (and the evals, when the agent changed)
