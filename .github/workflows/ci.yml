@@ -4,9 +4,10 @@
 #   agent      builds the agent image and checks that the program loads
 #   terraform  checks the formatting of infra/ and validates both configurations in it
 #   image      builds the API image; on main it is also pushed to GHCR
+#   web-images builds the agent image and the web image; on main they are pushed too
 #
-# The image is built once per commit on main and tagged with the commit SHA.
-# A deploy never builds anything: it points the server at one of those tags.
+# The images are built once per commit on main and tagged with the commit SHA.
+# A deploy never builds anything: it points the server at those tags.
 
 name: CI
 
@@ -57,6 +58,10 @@ jobs:
       # This step catches a missing dependency or a file that does not load.
       - name: Check that the program loads
         run: docker compose run --rm -T --no-deps agent python -c "import main"
+
+      # The same image also runs as the server behind the web interface.
+      - name: Check that the server loads
+        run: docker compose run --rm -T --no-deps agent python -c "import server"
 
   terraform:
     name: Terraform validate
@@ -124,3 +129,56 @@ jobs:
             service=ticketing-api
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # The other two images a deploy needs: the agent (it runs as the server behind the
+  # web interface) and the web interface itself. Building the web image is also the
+  # check that the Angular app compiles.
+  web-images:
+    name: Agent and web images
+    needs: [api, agent, terraform]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Work out the image names
+        run: echo "IMAGE_BASE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        if: github.event_name == 'push'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The labels match "service" in config/deploy.agent.yml and config/deploy.web.yml.
+      - name: Agent image
+        uses: docker/build-push-action@v7
+        with:
+          context: ./agent
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ${{ env.IMAGE_BASE }}/agent:${{ github.sha }}
+            ${{ env.IMAGE_BASE }}/agent:main
+          labels: |
+            service=ticketing-agent
+          cache-from: type=gha,scope=agent
+          cache-to: type=gha,mode=max,scope=agent
+
+      - name: Web image
+        uses: docker/build-push-action@v7
+        with:
+          context: ./web
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ${{ env.IMAGE_BASE }}/web:${{ github.sha }}
+            ${{ env.IMAGE_BASE }}/web:main
+          labels: |
+            service=ticketing-web
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web

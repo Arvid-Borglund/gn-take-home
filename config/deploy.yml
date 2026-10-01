@@ -1,4 +1,6 @@
 # Kamal configuration: how the API and its database run on the server.
+# The agent server and the web interface have their own files next to this one
+# (deploy.agent.yml, deploy.web.yml).
 #
 # Used by .github/workflows/deploy.yml:
 #   kamal deploy --skip-push --version <commit sha>
@@ -11,26 +13,17 @@ service: ticketing-api
 # Without the registry address: Kamal puts registry.server in front of it.
 image: arvid-borglund/gn-take-home/api
 
+# The API is not behind kamal-proxy and has no address of its own. The web container
+# (config/deploy.web.yml) is the only way in from outside: its nginx asks for the
+# password and passes the API paths on to this container by its network alias.
 servers:
   web:
     hosts:
       - 135.181.92.165
     options:
+      network-alias: ticketing-api
       memory: 384m
-
-# kamal-proxy is the only way in. It terminates TLS with a Let's Encrypt certificate,
-# and at a deploy it sends traffic to the new container only once that container
-# answers the health check. The old one keeps serving until then.
-proxy:
-  ssl: true
-  hosts:
-    - lundona.com
-    - www.lundona.com
-  app_port: 8080
-  healthcheck:
-    path: /health
-    interval: 3
-    timeout: 3
+    proxy: false
 
 # GHCR. In the workflow the password is the run's own GITHUB_TOKEN: the server only has
 # to pull the image during the deploy, so a token that dies with the run is enough.

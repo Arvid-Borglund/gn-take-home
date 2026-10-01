@@ -1,0 +1,47 @@
+# Kamal configuration for the agent server (agent/server.py: FastAPI around the graph).
+#
+# Used by .github/workflows/deploy.yml:
+#   kamal deploy -c config/deploy.agent.yml --skip-push --version <commit sha>
+#
+# The same image as the command-line agent, started as a server. It is not behind
+# kamal-proxy and has no address of its own: the web container's nginx passes
+# /api/chat/ on to it by its network alias. The chat is therefore only reachable
+# through the web interface's login. That matters here, because every message costs a
+# call to the language model with the key below.
+
+service: ticketing-agent
+
+image: arvid-borglund/gn-take-home/agent
+
+servers:
+  web:
+    hosts:
+      - 135.181.92.165
+    # The image starts the command-line program by default. Here it runs the server.
+    cmd: python server.py
+    options:
+      network-alias: ticketing-agent
+      memory: 384m
+    proxy: false
+
+registry:
+  server: ghcr.io
+  username: arvid-borglund
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+builder:
+  arch: amd64
+
+ssh:
+  user: root
+
+env:
+  clear:
+    # The ticket API by its network alias (config/deploy.yml).
+    TICKET_API_URL: http://ticketing-api:8080
+    AZURE_OPENAI_ENDPOINT: https://external-api.openai.azure.com/
+    AZURE_OPENAI_DEPLOYMENT: gpt-6-luna-c1
+    AZURE_OPENAI_API_VERSION: 2024-12-01-preview
+  secret:
+    - AZURE_OPENAI_API_KEY
