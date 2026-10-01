@@ -339,6 +339,14 @@ How it is built:
   loop that reads the graph is the one the command line has, with "send to the browser"
   where the command line prints. The tools come from the MCP server here too: the
   server starts it once, and `/api/chat/health` says `"tools": "mcp"`.
+- **A turn runs to its end even if the browser hangs up.** The turn is a task of its
+  own that runs the graph and puts every event in a queue; the HTTP response only reads
+  from that queue. A closed tab or a reload stops the reader, not the turn. Otherwise
+  the graph could be stopped after the model has asked for a tool and before the tool
+  has answered, and the model refuses to continue a conversation that ends that way.
+  A conversation runs one turn at a time: a message that arrives while a turn is
+  running gets a 409. `agent/check_turns.py` checks this with the real graph and a
+  scripted model, and CI runs it.
 - **The viewer only reads.** It gets the tickets straight from the ticket API, through
   nginx, and nginx refuses everything but GET on that path. Every change to a ticket
   goes through the agent.
@@ -409,7 +417,7 @@ Each test creates the ticket it needs and removes it afterwards.
 | Job | What it does |
 |---|---|
 | API tests | Starts the database and the API with the same compose command as above, and runs the tests. |
-| Agent image | Builds the agent image, checks that the program and the server load, checks that the MCP server offers the same tools as the direct ones, and checks that a killed MCP server is started again. It makes no model call; the evals below do that, in a workflow of their own. |
+| Agent image | Builds the agent image, checks that the program and the server load, checks that the MCP server offers the same tools as the direct ones, checks that a killed MCP server is started again, and checks that a turn in the web server survives a reader that hangs up. It makes no model call; the evals below do that, in a workflow of their own. |
 | Terraform validate | `terraform fmt -check`, `init` and `validate` on `infra/`. |
 | API image | Builds the API image. On main it is pushed to the GitHub container registry, tagged with the commit SHA. |
 | Agent and web images | Builds the agent image and the web image, which is also the check that the Angular app compiles. On main they are pushed like the API image. |
