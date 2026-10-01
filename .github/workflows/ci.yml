@@ -2,7 +2,7 @@
 #
 #   api        starts the database and the API with compose and runs the API tests
 #   agent      builds the agent image and checks that the program loads
-#   terraform  checks the formatting of infra/ and validates it
+#   terraform  checks the formatting of infra/ and validates both configurations in it
 #   image      builds the API image; on main it is also pushed to GHCR
 #
 # The image is built once per commit on main and tagged with the commit SHA.
@@ -68,13 +68,21 @@ jobs:
       - uses: hashicorp/setup-terraform@v4
 
       - name: Check the formatting
-        run: terraform -chdir=infra fmt -check -diff
+        run: terraform -chdir=infra fmt -check -recursive -diff
 
-      - name: Download the provider
-        run: terraform -chdir=infra init -input=false
+      # infra/ is the Azure skeleton from the assignment. It is never applied.
+      - name: Validate the Azure skeleton
+        run: |
+          terraform -chdir=infra init -input=false
+          terraform -chdir=infra validate
 
-      - name: Validate
-        run: terraform -chdir=infra validate
+      # infra/hetzner is the server the API is deployed on. No backend here: the state
+      # is not needed to check the files. The plan against the real server is made
+      # by terraform.yml.
+      - name: Validate the Hetzner configuration
+        run: |
+          terraform -chdir=infra/hetzner init -input=false -backend=false
+          terraform -chdir=infra/hetzner validate
 
   image:
     name: API image
