@@ -1,0 +1,95 @@
+# Terraform for the server at Hetzner (infra/hetzner).
+#
+#   pull request that touches infra/hetzner   plan
+#   Run workflow                              plan, and with "apply" ticked also apply
+#
+# The plan is written to the summary page of the run. Apply never runs by itself.
+#
+# The Hetzner token in this repository is read-only, on purpose. A plan needs no more
+# than that, and neither does the one apply this configuration has to do: adopting
+# the existing server into the state changes nothing at Hetzner. A plan that wants to
+# change the server will fail at apply. This repository describes the server and
+# checks it; it cannot change it.
+
+name: Terraform
+
+on:
+  pull_request:
+    paths:
+      - 'infra/hetzner/**'
+      - '.github/workflows/terraform.yml'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Run apply. Without this only a plan is made.'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Never two Terraform runs at the same time, and never cancel one that is running:
+# an interrupted apply can leave the state out of step with reality.
+concurrency:
+  group: terraform
+  cancel-in-progress: false
+
+jobs:
+  terraform:
+    name: Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: infra/hetzner
+    env:
+      # Reads the server at Hetzner.
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+      # Reads and writes the state in Cloudflare R2. The names are AWS's because the
+      # backend is the S3 one; the values are the R2 keys.
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT_URL_S3: ${{ vars.R2_ENDPOINT }}
+      STATE_BUCKET: ${{ vars.R2_BUCKET }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # A fork has no access to the secrets. Without them there is nothing to plan,
+      # which is not a failure. The files themselves are validated in ci.yml.
+      - name: Are the credentials there?
+        id: credentials
+        run: |
+          if [ -z "$HCLOUD_TOKEN" ] || [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "::notice::The Hetzner token or the R2 keys are not configured, so nothing was planned."
+            echo "present=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=yes" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: hashicorp/setup-terraform@v4
+        if: steps.credentials.outputs.present == 'yes'
+
+      - name: Init
+        if: steps.credentials.outputs.present == 'yes'
+        run: terraform init -input=false -backend-config="bucket=$STATE_BUCKET"
+
+      # "| tee" makes the step's exit code tee's, not Terraform's. Without pipefail the
+      # step would be green even when the plan could not be made. The exit code is
+      # kept instead of failing at once, so that the summary is written either way.
+      - name: Plan
+        if: steps.credentials.outputs.present == 'yes'
+        run: |
+          set -o pipefail
+          result=0
+          terraform plan -no-color -input=false -out=tfplan | tee plan.txt || result=$?
+          {
+            echo '## Terraform plan'
+            echo '```'
+            tail -c 60000 plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $result
+
+      - name: Apply
+        if: steps.credentials.outputs.present == 'yes' && github.event_name == 'workflow_dispatch' && inputs.apply
+        run: terraform apply -input=false -auto-approve tfplan

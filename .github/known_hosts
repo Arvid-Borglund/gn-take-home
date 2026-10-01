@@ -1,0 +1,5 @@
+# The server's SSH host key, pinned. The deploy workflow copies this file to
+# ~/.ssh/known_hosts, so that a runner connects to the right machine or not at all.
+# ssh-keyscan on every run would accept whichever machine answers.
+# If the server is rebuilt it gets a new host key, and this line changes in the same pull request.
+135.181.92.165 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILx3K2sla4rx3IcJ/TMl6SggRXOIQGdbnX12eCQThl7b
