@@ -8,7 +8,7 @@ description of how the API would run on Azure.
 |---|---|---|
 | 1 | Ticketing API: ASP.NET Core and EF Core on PostgreSQL | `api/`, `db/` |
 | 2 | GenAI agent: LangGraph in Python, with a command-line interface | `agent/` |
-| 2, bonus | MCP server for the ticketing API, with the agent as its client | `agent/mcp_server.py`, `agent/mcp_client.py` |
+| 2, bonus | MCP server for the ticketing API. The agent gets its tools from it. | `agent/mcp_server.py`, `agent/mcp_client.py` |
 | 3 | PR review bot: a Python script run by GitHub Actions | `pr_review/`, `.github/workflows/pr-review.yml` |
 | 4 | Terraform skeleton for Azure | `infra/` |
 
@@ -64,11 +64,13 @@ has to be installed: the database, the API and the agent each run in their own c
 
    [docs/demo.md](docs/demo.md) is the output of that command.
 
-   Add `--mcp` to either command and the agent reaches the API through the MCP server
-   instead (see [Bonus: the MCP server](#bonus-the-mcp-server)):
+   The agent reaches the API through its MCP server (see
+   [Bonus: the MCP server](#bonus-the-mcp-server)); the first line it prints lists the
+   tools the server offers. Add `--direct` to either command to run the same agent
+   without that step:
 
    ```bash
-   docker compose run --rm agent python main.py --demo --mcp
+   docker compose run --rm agent python main.py --demo --direct
    ```
 
 5. Run the API tests (optional).
@@ -152,9 +154,11 @@ The agent is a LangGraph graph with three nodes (`agent/graph.py`). `agent` call
 model with the tools bound. `tools` runs the tool calls the model asked for and hands
 the results back. The two take turns until the model answers the user.
 
-**Tools.** There is one tool per endpoint, seven in total (`agent/tools.py`), on top of
-a small HTTP client (`agent/api_client.py`). On success a tool returns the JSON from the
-API.
+**Tools.** There is one tool per endpoint, seven in total. The agent does not call the
+API itself: it gets the tools from an MCP server (`agent/mcp_server.py`), which calls
+the API through a small HTTP client (`agent/api_client.py`). On success a tool returns
+the JSON from the API. How the server and the agent's side of it are built is described
+under [Bonus: the MCP server](#bonus-the-mcp-server).
 
 **Error handling.** A 4xx from the API is not an exception in the agent, it is a result.
 The path of an error:
@@ -162,7 +166,8 @@ The path of an error:
 1. The API answers 422 with a `detail` message.
 2. The client reads `detail` out of the ProblemDetails body.
 3. The tool returns `API ERROR 422: 'PROGRESS' is not a valid status. Valid statuses
-   are: OPEN, RESOLVED, CLOSED.` to the model.
+   are: OPEN, RESOLVED, CLOSED.` to the model, as a tool result that is marked as an
+   error.
 4. The system prompt (`agent/prompts.py`) tells the model what to do with a result like
    that: do not retry with a guess, tell the user what was rejected and why, using the
    specifics in the message, and say what they can do next.
@@ -208,29 +213,22 @@ agent  --MCP over stdio-->  mcp_server.py  --HTTP-->  ticket API
 ```
 
 `agent/mcp_server.py` exposes the ticketing API as an MCP server, built with the official
-MCP Python SDK. With `--mcp` the agent takes its tools from that server instead of
-calling the API itself:
-
-```bash
-docker compose run --rm agent python main.py --mcp
-docker compose run --rm agent python main.py --demo --mcp
-```
-
-[docs/demo-mcp.md](docs/demo-mcp.md) is the output of the second command.
+MCP Python SDK. The agent takes its tools from that server instead of calling the API
+itself. That goes for everything that runs the agent: the command line, the evals and
+the web interface.
 
 The four steps of the task:
 
 1. **The server.** An `MCPServer` from the SDK, run over stdio: the client starts the
    file as a subprocess and the two talk over its stdin and stdout. No port is opened
    and no extra container is needed.
-2. **The tools.** One tool per endpoint, the same seven as in Part 2, with the same
-   names, descriptions and arguments. Each tool also carries the MCP annotations that
-   say what it does to the data: the three reading tools are marked read-only, and
-   `delete_ticket` is marked destructive.
-3. **The handlers.** A handler calls the same HTTP client as the direct tools
-   (`agent/api_client.py`) and returns the same text. A 4xx from the API becomes a tool
-   result with the API's `detail` message as text and with `isError` set, which is how
-   MCP says that the call was made and failed. On the wire:
+2. **The tools.** One tool per endpoint, seven in total. Each tool carries the MCP
+   annotations that say what it does to the data: the three reading tools are marked
+   read-only, and `delete_ticket` is marked destructive.
+3. **The handlers.** A handler calls the API through the HTTP client
+   (`agent/api_client.py`) and returns a text for the model. A 4xx from the API becomes
+   a tool result with the API's `detail` message as text and with `isError` set, which
+   is how MCP says that the call was made and failed. On the wire:
 
    ```json
    {"content": [{"type": "text", "text": "API ERROR 404: Ticket 424242 does not exist."}], "isError": true}
@@ -243,31 +241,41 @@ The four steps of the task:
    of the result back. The client side is written directly on the SDK, without an
    adapter library, so those three steps are visible in the code.
 
-The graph is the same on both paths: it gets a list of tools and does not know where
-they come from. What follows from that:
+What the split between the agent and the server means:
 
-- **The error handling is unchanged.** The model reads the same `API ERROR 422: ...`
-  text and the same rules in the system prompt apply.
+- **The graph does not know where its tools come from.** It gets a list of tools. The
+  error handling of Part 2 is the same: the model reads the `API ERROR 422: ...` text
+  and the rules in the system prompt apply.
 - **The confirmation before a delete stays in the agent.** The server carries out a
   delete when it is asked to. Asking the user first is the client's job, and the
-  `confirm` node does it the same way on both paths.
+  `confirm` node of the graph does it.
 - **The server gets only what it needs.** A subprocess started over stdio does not
   inherit the agent's environment. The agent passes the address of the API on, and
   not the model key.
+- **The server lives as long as what started it.** The command line starts it for one
+  run. The web server (`agent/server.py`) starts it once and uses it for every
+  conversation.
 
-The direct tools are still the default, so the main path of Part 2 has one moving part
-less. That means the seven tools are written down twice, in `agent/tools.py` and in
-`agent/mcp_server.py`. Two checks keep the two paths the same:
+**The agent without the server.** `--direct` runs the same agent with tools of its own
+(`agent/tools.py`) that call the API without the MCP step:
+
+```bash
+docker compose run --rm agent python main.py --direct
+```
+
+[docs/demo-direct.md](docs/demo-direct.md) is the demo run that way. It is kept as a
+fallback, and as something to compare the MCP path with. That means the seven tools are
+written down twice, in `agent/mcp_server.py` and in `agent/tools.py`. Two checks keep
+the two the same:
 
 ```bash
 docker compose run --rm agent python check_mcp.py
-docker compose run --rm agent python evals/run.py --mcp
+docker compose run --rm agent python evals/run.py --direct
 ```
 
 The first starts the server, lists its tools and compares them with the direct tools:
 names, descriptions and arguments. It needs no model and CI runs it. The second runs
-the evals below with the tools taken from the MCP server; all 14 cases pass on both
-paths.
+the evals below without the MCP server; all 14 cases pass both ways.
 
 Other MCP clients can use the server too. For a client that starts its servers by
 command, the command is:
@@ -309,7 +317,8 @@ How it is built:
   the answer is a stream of server-sent events, one per thing that happens in the
   graph: a tool call, a tool result, the answer, or the question before a delete. The
   loop that reads the graph is the one the command line has, with "send to the browser"
-  where the command line prints.
+  where the command line prints. The tools come from the MCP server here too: the
+  server starts it once, and `/api/chat/health` says `"tools": "mcp"`.
 - **The viewer only reads.** It gets the tickets straight from the ticket API, through
   nginx, and nginx refuses everything but GET on that path. Every change to a ticket
   goes through the agent.
@@ -392,8 +401,8 @@ the published tags of one commit.
 
 The tests above say whether the API keeps its contract. The evals say whether the agent
 behaves: `agent/evals/cases.yaml` holds 14 fixed questions with fixed expectations, and
-`agent/evals/run.py` sends each one through the real graph, with the real model and the
-real API.
+`agent/evals/run.py` sends each one through the real graph, with the real model, the
+MCP server and the real API.
 
 ```bash
 docker compose run --rm agent python evals/run.py
