@@ -1,0 +1,75 @@
+# Kamal configuration: how the API and its database run on the server.
+#
+# Used by .github/workflows/deploy.yml:
+#   kamal deploy --skip-push --version <commit sha>
+#
+# The image is never built from here. CI builds it once per commit on main and pushes
+# it to GHCR; a deploy only points the server at one of those tags.
+
+service: ticketing-api
+
+# Without the registry address: Kamal puts registry.server in front of it.
+image: arvid-borglund/gn-take-home/api
+
+servers:
+  web:
+    hosts:
+      - 135.181.92.165
+    options:
+      memory: 384m
+
+# kamal-proxy is the only way in. It terminates TLS with a Let's Encrypt certificate,
+# and at a deploy it sends traffic to the new container only once that container
+# answers the health check. The old one keeps serving until then.
+proxy:
+  ssl: true
+  hosts:
+    - lundona.com
+    - www.lundona.com
+  app_port: 8080
+  healthcheck:
+    path: /health
+    interval: 3
+    timeout: 3
+
+# GHCR. In the workflow the password is the run's own GITHUB_TOKEN: the server only has
+# to pull the image during the deploy, so a token that dies with the run is enough.
+registry:
+  server: ghcr.io
+  username: arvid-borglund
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+# Required by Kamal's validation. Nothing is built from here (--skip-push).
+builder:
+  arch: amd64
+
+ssh:
+  user: root
+
+env:
+  secret:
+    # ASP.NET reads this as ConnectionStrings:TicketDb. Put together in .kamal/secrets.
+    - ConnectionStrings__TicketDb
+
+# PostgreSQL runs next to the API as its own container. No port is published: the API
+# reaches it by name over Docker's network, and nothing outside the server can.
+# The schema file is mounted where the postgres image runs it on an empty data
+# directory, the same file the local database image is built from.
+accessories:
+  postgres:
+    service: ticketing-postgres
+    image: postgres:16
+    host: 135.181.92.165
+    options:
+      memory: 512m
+    env:
+      clear:
+        POSTGRES_USER: ticket
+        POSTGRES_DB: ticketdb
+      secret:
+        - POSTGRES_PASSWORD
+    files:
+      - db/init/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql
+    directories:
+      - data:/var/lib/postgresql/data
