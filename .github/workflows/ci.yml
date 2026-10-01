@@ -63,6 +63,11 @@ jobs:
       - name: Check that the server loads
         run: docker compose run --rm -T --no-deps agent python -c "import server"
 
+      # Starts the MCP server, lists its tools and compares them with the direct tools.
+      # Listing tools calls neither the model nor the API.
+      - name: Check that the MCP server offers the same tools as the direct ones
+        run: docker compose run --rm -T --no-deps agent python check_mcp.py
+
   terraform:
     name: Terraform validate
     runs-on: ubuntu-latest

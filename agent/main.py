@@ -1,7 +1,13 @@
 """Command-line interface for the ticket agent.
 
-    python main.py          chat: type a request, or the number of an example scenario
-    python main.py --demo   runs every example scenario once, without any input
+    python main.py            chat: type a request, or the number of an example scenario
+    python main.py --demo     runs every example scenario once, without any input
+    python main.py --direct   the same, but the agent calls the API with its own tools
+                              (tools.py) instead of going through the MCP server;
+                              can be combined with --demo
+
+The tools come from the MCP server (mcp_server.py), which the agent starts as a
+subprocess. --direct is the same agent without that step.
 
 The CLI prints each tool call and each tool result as they happen, so it is visible
 what the agent did and what the API answered, not only what the agent says afterwards.
@@ -10,6 +16,7 @@ what the agent did and what the API answered, not only what the agent says after
 import asyncio
 import sys
 import time
+import traceback
 from typing import Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -20,6 +27,7 @@ from langgraph.types import Command
 from api_client import TicketApiClient
 from config import ConfigError, Settings, load_settings
 from graph import TicketAgent
+from mcp_client import connect_to_mcp_server, load_mcp_tools
 from tools import build_tools
 
 # One step is one node run. A normal request takes three (agent, tools, agent). This is
@@ -273,8 +281,45 @@ async def demo(graph, client: TicketApiClient) -> None:
         await run_turn_safely(graph, make_config(number), user_text, True)
 
 
+async def run_cli(llm, tools: list, client: TicketApiClient, demo_mode: bool) -> None:
+    graph = TicketAgent(llm, tools).build()
+
+    if demo_mode:
+        await demo(graph, client)
+    else:
+        await chat(graph, client)
+
+
+def describe_mcp_tools(mcp_client, tools: list) -> str:
+    """One line that says where the tools come from. Printed when the agent starts."""
+    names = []
+    for tool in tools:
+        names.append(tool.name)
+    return f"(MCP server '{mcp_client.server_info.name}' offers {len(tools)} tools: " + ", ".join(names) + ")"
+
+
+async def run(settings: Settings, client: TicketApiClient, demo_mode: bool, use_direct_tools: bool) -> None:
+    """Gets the tools, from the MCP server or the direct ones, and runs the CLI.
+    The graph is the same in both cases: it only sees a list of tools."""
+    llm = build_llm(settings)
+
+    if use_direct_tools:
+        tools = build_tools(client)
+        print("(direct tools: the agent calls the ticket API itself, without the MCP server)")
+        await run_cli(llm, tools, client, demo_mode)
+        return
+
+    # "async with" starts the MCP server as a subprocess and stops it again when the
+    # block is left, so the server lives exactly as long as the CLI runs.
+    async with connect_to_mcp_server(settings.ticket_api_url) as mcp_client:
+        tools = await load_mcp_tools(mcp_client)
+        print(describe_mcp_tools(mcp_client, tools))
+        await run_cli(llm, tools, client, demo_mode)
+
+
 def main() -> int:
     demo_mode = "--demo" in sys.argv[1:]
+    use_direct_tools = "--direct" in sys.argv[1:]
 
     try:
         settings = load_settings()
@@ -287,14 +332,23 @@ def main() -> int:
         print(f"The ticket API does not answer at {settings.ticket_api_url}. Start it with: docker compose up -d")
         return 1
 
-    llm = build_llm(settings)
-    tools = build_tools(client)
-    graph = TicketAgent(llm, tools).build()
+    try:
+        asyncio.run(run(settings, client, demo_mode, use_direct_tools))
+    except Exception as error:
+        if use_direct_tools:
+            raise
+        # A failed turn is handled inside the chat. What ends up here is most likely
+        # the MCP server not starting, but it can be anything else too, so the whole
+        # traceback is printed first: the cause must not get lost.
+        traceback.print_exc()
+        # To stderr, like the traceback, so that the two stay in order.
+        print(
+            f"The agent stopped on an error ({type(error).__name__}, see above). "
+            "If the MCP server is the cause: with --direct the agent calls the ticket API itself.",
+            file=sys.stderr,
+        )
+        return 1
 
-    if demo_mode:
-        asyncio.run(demo(graph, client))
-    else:
-        asyncio.run(chat(graph, client))
     return 0
 
 
