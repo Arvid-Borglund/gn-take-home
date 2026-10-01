@@ -1,0 +1,170 @@
+# Nightly backup of the database: pg_dump inside the postgres container, restored into
+# a scratch database to prove that the dump can be read back, then uploaded to
+# Cloudflare R2.
+#
+# The runner pulls the backup; the server does not push it. The R2 keys exist only as
+# GitHub secrets and never reach the server, so a server that has been taken over
+# cannot delete its own backups. R2 is also with another provider than the server:
+# losing the Hetzner account does not take the data with it.
+#
+# This is the backup of the data. Hetzner's own backup of the whole machine
+# (infra/hetzner/main.tf) is the backup of the server. One does not replace the other.
+#
+# pg_dump needs no password: it runs inside the container over the unix socket, which
+# the postgres image trusts. The password only applies to connections over the network.
+
+name: Database backup
+
+on:
+  schedule:
+    # 02:30 UTC. Hetzner's own backup window for the server is 18-22.
+    - cron: '30 2 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-db
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Dump, restore check, upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HOST: 135.181.92.165
+      CONTAINER: ticketing-postgres
+      DB: ticketdb
+      DB_USER: ticket
+      # The scratch database the dump is restored into, and dropped again.
+      CHECK_DB: ticketdb_restore_check
+      # How many dumps are kept in the bucket.
+      KEEP: 14
+      BUCKET: ${{ vars.R2_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT_URL: ${{ vars.R2_ENDPOINT }}
+      AWS_DEFAULT_REGION: auto
+      # Newer versions of the AWS CLI sign requests with checksums that S3-compatible
+      # storage does not always support. when_required: only when the API demands it.
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+    steps:
+      - uses: actions/checkout@v7
+
+      # A fork has no access to the secrets, and they can be removed from the
+      # repository. Without them there is nothing to do, which is not a failure.
+      - name: Are the credentials there?
+        id: credentials
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SSH_PRIVATE_KEY" ] || [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$BUCKET" ]; then
+            echo "::notice::The SSH key, the R2 keys or the bucket name is not configured, so no backup was made."
+            echo "present=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=yes" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up the SSH key and the pinned host key
+        if: steps.credentials.outputs.present == 'yes'
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          cp .github/known_hosts ~/.ssh/known_hosts
+
+      # Three states, to tell "not there yet" from "broken":
+      #   ready   the postgres container is running: back it up
+      #   absent  nothing is deployed on the server: skip, without failing
+      #   broken  the application is deployed but postgres is not running: fail,
+      #           because that is an incident and not an expected absence
+      - name: Is there a database to back up?
+        if: steps.credentials.outputs.present == 'yes'
+        id: guard
+        run: |
+          STATE=$(ssh "root@$HOST" "
+            if ! command -v docker >/dev/null 2>&1; then echo absent; exit 0; fi
+            if docker ps --format '{{.Names}}' | grep -qx '$CONTAINER'; then echo ready; exit 0; fi
+            if docker ps -a --format '{{.Names}}' | grep -q '^ticketing-'; then echo broken; else echo absent; fi
+          ")
+          echo "state=$STATE" >> "$GITHUB_OUTPUT"
+          case "$STATE" in
+            ready)  echo "postgres is running: backing up $DB." ;;
+            absent) echo "::notice::Nothing is deployed on $HOST yet, so there is nothing to back up." ;;
+            *)      echo "::error::The application is deployed on $HOST but $CONTAINER is not running." ; exit 1 ;;
+          esac
+
+      - name: Dump
+        if: steps.guard.outputs.state == 'ready'
+        run: |
+          STAMP=$(date -u +%Y-%m-%dT%H%M%SZ)
+          echo "KEY=db-backups/$DB/$STAMP.pgdump" >> "$GITHUB_ENV"
+          ssh "root@$HOST" "docker exec $CONTAINER pg_dump -U $DB_USER -Fc --no-owner $DB" > dump.pgdump
+          ls -l dump.pgdump
+
+      # A backup that has never been read back is not a backup. The dump is restored
+      # into a scratch database next to the real one, with the same PostgreSQL that made
+      # it, and one rule of the schema is checked on the result: every ticket has at
+      # least one version. Only a dump that passes is uploaded.
+      - name: Restore the dump into a scratch database
+        if: steps.guard.outputs.state == 'ready'
+        run: |
+          ssh "root@$HOST" "docker exec $CONTAINER psql -U $DB_USER -d postgres -v ON_ERROR_STOP=1 \
+            -c 'DROP DATABASE IF EXISTS $CHECK_DB' \
+            -c 'CREATE DATABASE $CHECK_DB'"
+          ssh "root@$HOST" "docker exec -i $CONTAINER pg_restore -U $DB_USER -d $CHECK_DB --no-owner --exit-on-error" < dump.pgdump
+
+          TICKETS=$(ssh "root@$HOST" "docker exec $CONTAINER psql -U $DB_USER -d $CHECK_DB -tAc 'select count(*) from ticket'")
+          VERSIONS=$(ssh "root@$HOST" "docker exec $CONTAINER psql -U $DB_USER -d $CHECK_DB -tAc 'select count(*) from ticket_version'")
+          COMMENTS=$(ssh "root@$HOST" "docker exec $CONTAINER psql -U $DB_USER -d $CHECK_DB -tAc 'select count(*) from ticket_comment'")
+          ORPHANS=$(ssh "root@$HOST" "docker exec $CONTAINER psql -U $DB_USER -d $CHECK_DB -tAc 'select count(*) from ticket t where not exists (select 1 from ticket_version v where v.ticket_id = t.ticket_id)'")
+
+          ssh "root@$HOST" "docker exec $CONTAINER psql -U $DB_USER -d postgres -c 'DROP DATABASE $CHECK_DB'"
+
+          echo "restored: $TICKETS tickets, $VERSIONS versions, $COMMENTS comments"
+          {
+            echo "TICKETS=$TICKETS"
+            echo "VERSIONS=$VERSIONS"
+            echo "COMMENTS=$COMMENTS"
+          } >> "$GITHUB_ENV"
+
+          if [ "$ORPHANS" != "0" ]; then
+            echo "::error::$ORPHANS restored tickets have no version. The dump is not uploaded."
+            exit 1
+          fi
+
+      - name: Upload
+        if: steps.guard.outputs.state == 'ready'
+        run: aws s3 cp dump.pgdump "s3://$BUCKET/$KEY"
+
+      # Keep the newest $KEEP dumps. The timestamp in the name sorts as text, so the
+      # oldest come first. This runs after a successful upload: a failed backup never
+      # removes an old one.
+      - name: Remove old dumps
+        if: steps.guard.outputs.state == 'ready'
+        run: |
+          aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "db-backups/$DB/" \
+            --query 'Contents[].Key' --output text | tr '\t' '\n' | grep -v '^None$' \
+            | sort | head -n -"$KEEP" | while read -r OLD; do
+              [ -n "$OLD" ] || continue
+              echo "removing $OLD"
+              aws s3 rm "s3://$BUCKET/$OLD"
+            done
+
+      - name: Summary
+        if: steps.guard.outputs.state == 'ready'
+        run: |
+          SIZE=$(du -h dump.pgdump | cut -f1)
+          COUNT=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "db-backups/$DB/" \
+            --query 'length(Contents)' --output text)
+          {
+            echo "### Backup of $DB"
+            echo "- Object: \`$KEY\` ($SIZE)"
+            echo "- Restored and checked: $TICKETS tickets, $VERSIONS versions, $COMMENTS comments"
+            echo "- Dumps in the bucket: $COUNT (the newest $KEEP are kept)"
+          } >> "$GITHUB_STEP_SUMMARY"
