@@ -1,0 +1,47 @@
+# Reviews every pull request with an LLM and posts the review as one comment.
+# The work is done by pr_review/analyze_pr.py; this file only says when to run it
+# and what it is allowed to do.
+
+name: PR review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+# The token GitHub hands the job may read the code and write to pull requests,
+# nothing else.
+permissions:
+  contents: read
+  pull-requests: write
+
+# A new push to the same pull request replaces a review that is still running.
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Review the diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the script's dependencies
+        run: pip install -r pr_review/requirements.txt
+
+      - name: Review the pull request
+        run: python pr_review/analyze_pr.py
+        env:
+          # GITHUB_TOKEN is created by GitHub for this run and dies with it.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          # The key is a repository secret, the other three are repository variables.
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION }}
