@@ -346,7 +346,10 @@ How it is built:
   has answered, and the model refuses to continue a conversation that ends that way.
   A conversation runs one turn at a time: a message that arrives while a turn is
   running gets a 409. `agent/check_turns.py` checks this with the real graph and a
-  scripted model, and CI runs it.
+  scripted model, and CI runs it. A page that opens a conversation in the middle of a
+  turn locks the input and reads the conversation again every other second until the
+  turn is over, so the reply is seen growing there too. A 409 is shown above the input,
+  with the text that was typed still in it.
 - **The viewer only reads.** It gets the tickets straight from the ticket API, through
   nginx, and nginx refuses everything but GET on that path. Every change to a ticket
   goes through the agent.
