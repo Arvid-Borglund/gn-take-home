@@ -1,7 +1,7 @@
 """The tools the model may call: one per endpoint of the ticket API.
 
 A tool does three things: it takes the arguments the model chose, calls the API through
-TicketApiClient, and returns a text for the model to read.
+TicketApiClient, and returns a text for the model to read (tool_results.py).
 
 - On success the text is the JSON the API returned.
 - On a 4xx the text starts with "API ERROR <status>:" followed by the API's own message.
@@ -12,28 +12,15 @@ is valid. The status argument is a free string on purpose, and no description be
 the valid statuses: the API owns the rules, and the agent learns them from its answers.
 """
 
-import json
 from typing import Optional
 
 from langchain_core.tools import tool
 
-from api_client import ApiResult, TicketApiClient
+from api_client import TicketApiClient
+from tool_results import describe_result
 
 # graph.py stops and asks the user before a call to this tool is run.
 DELETE_TOOL_NAME = "delete_ticket"
-
-
-def describe_result(result: ApiResult, text_when_no_body: str) -> str:
-    """Turns an ApiResult into the text the model reads."""
-    if result.ok:
-        if result.data is None:
-            return text_when_no_body
-        return json.dumps(result.data)
-
-    if result.status_code == 0:
-        return f"ERROR: {result.error}"
-
-    return f"API ERROR {result.status_code}: {result.error}"
 
 
 def build_tools(client: TicketApiClient) -> list:
