@@ -1,10 +1,13 @@
 """Command-line interface for the ticket agent.
 
-    python main.py          chat: type a request, or the number of an example scenario
-    python main.py --demo   runs every example scenario once, without any input
-    python main.py --mcp    the same, but the tools come from the MCP server
-                            (mcp_server.py) instead of calling the API directly;
-                            can be combined with --demo
+    python main.py            chat: type a request, or the number of an example scenario
+    python main.py --demo     runs every example scenario once, without any input
+    python main.py --direct   the same, but the agent calls the API with its own tools
+                              (tools.py) instead of going through the MCP server;
+                              can be combined with --demo
+
+The tools come from the MCP server (mcp_server.py), which the agent starts as a
+subprocess. --direct is the same agent without that step.
 
 The CLI prints each tool call and each tool result as they happen, so it is visible
 what the agent did and what the API answered, not only what the agent says afterwards.
@@ -286,13 +289,22 @@ async def run_cli(llm, tools: list, client: TicketApiClient, demo_mode: bool) ->
         await chat(graph, client)
 
 
-async def run(settings: Settings, client: TicketApiClient, demo_mode: bool, use_mcp: bool) -> None:
-    """Gets the tools, either the direct ones or the MCP server's, and runs the CLI.
+def describe_mcp_tools(mcp_client, tools: list) -> str:
+    """One line that says where the tools come from. Printed when the agent starts."""
+    names = []
+    for tool in tools:
+        names.append(tool.name)
+    return f"(MCP server '{mcp_client.server_info.name}' offers {len(tools)} tools: " + ", ".join(names) + ")"
+
+
+async def run(settings: Settings, client: TicketApiClient, demo_mode: bool, use_direct_tools: bool) -> None:
+    """Gets the tools, from the MCP server or the direct ones, and runs the CLI.
     The graph is the same in both cases: it only sees a list of tools."""
     llm = build_llm(settings)
 
-    if not use_mcp:
+    if use_direct_tools:
         tools = build_tools(client)
+        print("(direct tools: the agent calls the ticket API itself, without the MCP server)")
         await run_cli(llm, tools, client, demo_mode)
         return
 
@@ -300,18 +312,13 @@ async def run(settings: Settings, client: TicketApiClient, demo_mode: bool, use_
     # block is left, so the server lives exactly as long as the CLI runs.
     async with connect_to_mcp_server(settings.ticket_api_url) as mcp_client:
         tools = await load_mcp_tools(mcp_client)
-
-        names = []
-        for tool in tools:
-            names.append(tool.name)
-        print(f"(MCP server '{mcp_client.server_info.name}' offers {len(tools)} tools: " + ", ".join(names) + ")")
-
+        print(describe_mcp_tools(mcp_client, tools))
         await run_cli(llm, tools, client, demo_mode)
 
 
 def main() -> int:
     demo_mode = "--demo" in sys.argv[1:]
-    use_mcp = "--mcp" in sys.argv[1:]
+    use_direct_tools = "--direct" in sys.argv[1:]
 
     try:
         settings = load_settings()
@@ -325,13 +332,13 @@ def main() -> int:
         return 1
 
     try:
-        asyncio.run(run(settings, client, demo_mode, use_mcp))
+        asyncio.run(run(settings, client, demo_mode, use_direct_tools))
     except Exception as error:
-        if not use_mcp:
+        if use_direct_tools:
             raise
         # A failed turn is handled inside the chat. What ends up here is the MCP
         # server not starting, or stopping while the agent was running.
-        print(f"The MCP server could not be used ({type(error).__name__}). Without --mcp the agent calls the API directly.")
+        print(f"The MCP server could not be used ({type(error).__name__}). With --direct the agent calls the ticket API itself.")
         return 1
 
     return 0

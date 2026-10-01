@@ -3,9 +3,9 @@
     python check_mcp.py
 
 1. Starts mcp_server.py the same way the agent does and asks it for its tools.
-2. Compares them with the direct tools in tools.py. The tools are written down twice,
-   once for each way of reaching the API, and the model should see the same thing
-   either way: the same names, the same descriptions and the same arguments.
+2. Compares them with the direct tools in tools.py, the ones --direct uses. The tools
+   are written down twice, once for each way of reaching the API, and the model should
+   see the same thing either way: the same names, descriptions and arguments.
 
 The exit code is 0 only when the two sets are the same, so the command can gate a
 pipeline. CI runs it.

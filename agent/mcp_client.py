@@ -1,7 +1,8 @@
 """The agent's side of MCP: starts the MCP server and makes its tools usable in the graph.
 
-With --mcp the agent does not call the ticket API itself. It starts mcp_server.py as a
-subprocess and reaches the API through it:
+The agent does not call the ticket API itself. It starts mcp_server.py as a subprocess
+and reaches the API through it (the CLI in main.py and the web server in server.py both
+do; --direct turns it off):
 
     agent  --MCP over stdio-->  mcp_server.py  --HTTP-->  ticket API
 
@@ -17,8 +18,9 @@ What happens, in order:
 3. When the model calls a tool, the wrapper sends the call to the server (tools/call)
    and returns the text of the result.
 
-The graph does not know the difference. It gets a list of tools with the same names as
-the ones in tools.py, so the confirmation before delete_ticket works the same way.
+The graph does not know where its tools come from. It gets a list of tools with the
+same names as the direct ones in tools.py, so the confirmation before delete_ticket
+works the same way with both.
 """
 
 import inspect

@@ -1,6 +1,11 @@
 """HTTP server for the ticket agent: the same graph as the CLI, behind /api/chat.
 
-    python server.py        starts the server on port 8000
+    python server.py            starts the server on port 8000
+    python server.py --direct   the same, with the agent's own tools (tools.py) instead
+                                of the MCP server's
+
+As in the CLI, the tools come from the MCP server (mcp_server.py). It is started once,
+as a subprocess, when this server starts, and it lives as long as this server does.
 
 The web interface (web/) talks to this server. A message goes in with a POST, and the
 answer comes back as a stream of server-sent events, one per thing that happens in the
@@ -17,6 +22,7 @@ The conversations live in this process: the list of them in ChatServer, their me
 in the graph's in-memory checkpointer. They are gone when the server restarts.
 """
 
+import asyncio
 import json
 import sys
 from datetime import datetime, timezone
@@ -32,7 +38,8 @@ from pydantic import BaseModel
 from api_client import TicketApiClient
 from config import ConfigError, Settings, load_settings
 from graph import TicketAgent
-from main import MAX_GRAPH_STEPS, SCENARIOS, build_llm, fill_in_ids, wait_for_api
+from main import MAX_GRAPH_STEPS, SCENARIOS, build_llm, describe_mcp_tools, fill_in_ids, wait_for_api
+from mcp_client import connect_to_mcp_server, load_mcp_tools
 from tools import build_tools
 from transcript import Reply, build_chat_messages, reply_in_progress
 
@@ -85,10 +92,11 @@ def sse(event: str, data: dict) -> str:
 
 
 class ChatServer:
-    def __init__(self, graph, client: TicketApiClient, settings: Settings):
+    def __init__(self, graph, client: TicketApiClient, settings: Settings, tools_from: str):
         self._graph = graph
         self._client = client
         self._settings = settings
+        self._tools_from = tools_from   # "mcp" or "direct", shown by /api/chat/health
         self._conversations = {}   # conversation id -> Conversation
         self._next_id = 1
 
@@ -122,6 +130,7 @@ class ChatServer:
             "status": status,
             "ticket_api": ticket_api_up,
             "model": self._settings.azure_deployment,
+            "tools": self._tools_from,
         }
 
     def scenarios(self) -> list:
@@ -275,7 +284,37 @@ def pending_question(state):
     return None
 
 
+async def serve(llm, tools: list, client: TicketApiClient, settings: Settings, tools_from: str) -> None:
+    """Builds the graph and answers HTTP requests until the server is stopped."""
+    graph = TicketAgent(llm, tools).build()
+    app = ChatServer(graph, client, settings, tools_from).build_app()
+
+    config = uvicorn.Config(app, host="0.0.0.0", port=PORT)
+    await uvicorn.Server(config).serve()
+
+
+async def run(settings: Settings, client: TicketApiClient, use_direct_tools: bool) -> None:
+    """Gets the tools, from the MCP server or the direct ones, and runs the server.
+    The same choice as run() in main.py."""
+    llm = build_llm(settings)
+
+    if use_direct_tools:
+        tools = build_tools(client)
+        print("(direct tools: the agent calls the ticket API itself, without the MCP server)")
+        await serve(llm, tools, client, settings, "direct")
+        return
+
+    # The MCP server is started here, once, and every conversation uses it. The block
+    # is left when the HTTP server stops, and that stops the MCP server too.
+    async with connect_to_mcp_server(settings.ticket_api_url) as mcp_client:
+        tools = await load_mcp_tools(mcp_client)
+        print(describe_mcp_tools(mcp_client, tools))
+        await serve(llm, tools, client, settings, "mcp")
+
+
 def main() -> int:
+    use_direct_tools = "--direct" in sys.argv[1:]
+
     try:
         settings = load_settings()
     except ConfigError as error:
@@ -288,12 +327,17 @@ def main() -> int:
         # "could not be reached" until the API is up.
         print(f"The ticket API does not answer at {settings.ticket_api_url} yet.")
 
-    llm = build_llm(settings)
-    tools = build_tools(client)
-    graph = TicketAgent(llm, tools).build()
+    try:
+        asyncio.run(run(settings, client, use_direct_tools))
+    except KeyboardInterrupt:
+        # Ctrl+C: the HTTP server has already shut down in an orderly way.
+        pass
+    except Exception as error:
+        if use_direct_tools:
+            raise
+        print(f"The MCP server could not be used ({type(error).__name__}). With --direct the agent calls the ticket API itself.")
+        return 1
 
-    app = ChatServer(graph, client, settings).build_app()
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
     return 0
 
 

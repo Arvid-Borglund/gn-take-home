@@ -1,4 +1,8 @@
-"""The tools the model may call: one per endpoint of the ticket API.
+"""The direct tools: one per endpoint of the ticket API, called by the agent itself.
+
+The agent normally gets its tools from the MCP server (mcp_server.py), which offers
+the same seven. These are used with --direct: the same agent without the MCP step,
+kept as a fallback and as something to compare the MCP path with (check_mcp.py).
 
 A tool does three things: it takes the arguments the model chose, calls the API through
 TicketApiClient, and returns a text for the model to read (tool_results.py).
