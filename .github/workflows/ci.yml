@@ -1,0 +1,113 @@
+# Runs on every pull request and on every push to main.
+#
+#   api        starts the database and the API with compose and runs the API tests
+#   agent      builds the agent image and checks that the program loads
+#   terraform  checks the formatting of infra/ and validates it
+#   image      builds the API image; on main it is also pushed to GHCR
+#
+# The image is built once per commit on main and tagged with the commit SHA.
+# A deploy never builds anything: it points the server at one of those tags.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to the same branch replaces a run that is still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      # The same command as in the README: the database and the API as containers.
+      - name: Start the database and the API
+        run: docker compose up -d --build
+
+      - name: Run the tests
+        run: docker compose run --rm tests
+
+      - name: Show the container logs if something failed
+        if: failure()
+        run: docker compose logs
+
+  agent:
+    name: Agent image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the image
+        run: docker compose build agent
+
+      # No model call in CI: the agent's behaviour depends on the model, and a run
+      # that fails because the model had a bad day says nothing about the code.
+      # This catches a missing dependency or a file that does not load.
+      - name: Check that the program loads
+        run: docker compose run --rm -T --no-deps agent python -c "import main"
+
+  terraform:
+    name: Terraform validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+
+      - name: Check the formatting
+        run: terraform -chdir=infra fmt -check -diff
+
+      - name: Download the provider
+        run: terraform -chdir=infra init -input=false
+
+      - name: Validate
+        run: terraform -chdir=infra validate
+
+  image:
+    name: API image
+    needs: [api, agent, terraform]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # github.repository has capital letters in it, and image names must be lower case.
+      - name: Work out the image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}/api" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Only on main. A pull request builds the image to prove that it builds,
+      # but publishes nothing, so it does not have to log in.
+      - uses: docker/login-action@v4
+        if: github.event_name == 'push'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: ./api
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:main
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
