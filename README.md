@@ -275,6 +275,40 @@ calls a language model: it costs a little, takes a couple of minutes, and can fa
 reasons that are not in the code. It does not decide whether an image is published.
 Without a model key in the repository it skips, with a notice.
 
+## Deploy
+
+`.github/workflows/deploy.yml` deploys the API and its database to a server with
+[Kamal](https://kamal-deploy.org), over SSH. It is started by hand (Actions, Deploy, Run
+workflow). That click is the approval; nothing is deployed automatically.
+
+```
+pull request     CI: tests, image build, Terraform validation (and the evals, when the agent changed)
+merge to main    CI again, and the API image is pushed to GHCR, tagged with the commit SHA
+Run workflow     Kamal points the server at the image of one commit
+```
+
+What a deploy does (`config/deploy.yml`):
+
+- The server pulls the image of the chosen commit. Nothing is built.
+- Kamal starts the new container next to the old one. kamal-proxy, which terminates TLS
+  with a Let's Encrypt certificate, sends traffic to the new container only when
+  `GET /health` answers 200. Then the old one is stopped.
+- PostgreSQL runs as its own container on the same server. No port is published: only
+  the API reaches it, over Docker's network. The schema is the same
+  `db/init/001_schema.sql` as locally.
+- Rolling back is deploying an older commit SHA.
+
+What has to exist before the first deploy:
+
+- a GitHub environment named `production` with two secrets: `SSH_PRIVATE_KEY` (a key
+  pair made for the pipeline, with the public half in the server's `authorized_keys`)
+  and `POSTGRES_PASSWORD`,
+- the server's host key in `.github/known_hosts`,
+- DNS for the host names in `config/deploy.yml`, pointing at the server.
+
+The first run is started with `bootstrap` ticked: it installs Docker on the server and
+starts the database.
+
 ## Layout
 
 ```
@@ -285,6 +319,8 @@ tests/        tests of the API over HTTP (Python)
 pr_review/    the PR review script (Python)
 infra/        Terraform for Azure
 docs/         the demo transcript
-.github/      the CI workflow and the PR review workflow
+config/       the Kamal deploy configuration
+.kamal/       the secrets Kamal expects (names only, no values)
+.github/      the workflows: CI, evals, PR review and deploy
 compose.yaml  database, API, agent and tests as containers
 ```
