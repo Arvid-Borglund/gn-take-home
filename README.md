@@ -236,12 +236,44 @@ Each test creates the ticket it needs and removes it afterwards.
 | Job | What it does |
 |---|---|
 | API tests | Starts the database and the API with the same compose command as above, and runs the tests. |
-| Agent image | Builds the agent image and checks that the program loads. It makes no model call: a run that fails because of the model says nothing about the code. |
+| Agent image | Builds the agent image and checks that the program loads. It makes no model call; the evals below do that, in a workflow of their own. |
 | Terraform validate | `terraform fmt -check`, `init` and `validate` on `infra/`. |
 | API image | Builds the API image. On main it is pushed to the GitHub container registry, tagged with the commit SHA. |
 
 The image is built once per commit and never rebuilt for a deploy: a deploy points at
 one of the published tags.
+
+## Evals
+
+The tests above say whether the API keeps its contract. The evals say whether the agent
+behaves: `agent/evals/cases.yaml` holds 14 fixed questions with fixed expectations, and
+`agent/evals/run.py` sends each one through the real graph, with the real model and the
+real API.
+
+```bash
+docker compose run --rm agent python evals/run.py
+```
+
+Before every case the runner creates four known tickets, and afterwards it removes them.
+A case states which tools the agent must call, with which arguments, and which state the
+tickets must be in when it is done. Some examples:
+
+- `'PROGRESS'` must lead to exactly one `update_ticket` call, with the status as the
+  user wrote it, an answer that names the three valid statuses, and an unchanged ticket.
+  A second call with a guessed status fails the case.
+- "Close the ticket about the flickering monitor" must lead to `list_tickets` and then
+  `update_ticket` on the monitor ticket. The printer ticket must still be open.
+- "Delete ticket 4" with the confirmation declined: the ticket must still exist.
+  With the confirmation given: it must be gone.
+
+The checks are about what the agent did, not how it phrased it. The wording of an answer
+is only checked where something specific has to be in it.
+
+`.github/workflows/evals.yml` runs the evals on pull requests and pushes that touch the
+agent, the API or the schema, and on request. It is a workflow of its own because it
+calls a language model: it costs a little, takes a couple of minutes, and can fail for
+reasons that are not in the code. It does not decide whether an image is published.
+Without a model key in the repository it skips, with a notice.
 
 ## Layout
 

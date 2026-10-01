@@ -52,9 +52,9 @@ jobs:
       - name: Build the image
         run: docker compose build agent
 
-      # No model call in CI: the agent's behaviour depends on the model, and a run
-      # that fails because the model had a bad day says nothing about the code.
-      # This catches a missing dependency or a file that does not load.
+      # No model call here. Everything in this workflow gives the same result every
+      # time; the agent's behaviour is checked by the evals in evals.yml.
+      # This step catches a missing dependency or a file that does not load.
       - name: Check that the program loads
         run: docker compose run --rm -T --no-deps agent python -c "import main"
 
