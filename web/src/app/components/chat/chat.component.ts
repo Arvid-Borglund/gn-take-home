@@ -201,9 +201,11 @@ export class ChatComponent implements OnInit, AfterViewChecked, OnDestroy {
           this.busy = true;
           this.pollTimer = setTimeout(() => this.load(conversationId), POLL_INTERVAL_MS);
         } else if (this.watching) {
-          // The turn this page was watching is over.
+          // The turn this page was watching is over. So is the reason for a notice
+          // that said the agent is still working.
           this.watching = false;
           this.busy = false;
+          this.notice = '';
           this.ticketOpen.refresh();
           this.refreshConversations();
           this.refreshScenarios();
