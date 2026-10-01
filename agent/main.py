@@ -16,6 +16,7 @@ what the agent did and what the API answered, not only what the agent says after
 import asyncio
 import sys
 import time
+import traceback
 from typing import Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -336,9 +337,16 @@ def main() -> int:
     except Exception as error:
         if use_direct_tools:
             raise
-        # A failed turn is handled inside the chat. What ends up here is the MCP
-        # server not starting, or stopping while the agent was running.
-        print(f"The MCP server could not be used ({type(error).__name__}). With --direct the agent calls the ticket API itself.")
+        # A failed turn is handled inside the chat. What ends up here is most likely
+        # the MCP server not starting, but it can be anything else too, so the whole
+        # traceback is printed first: the cause must not get lost.
+        traceback.print_exc()
+        # To stderr, like the traceback, so that the two stay in order.
+        print(
+            f"The agent stopped on an error ({type(error).__name__}, see above). "
+            "If the MCP server is the cause: with --direct the agent calls the ticket API itself.",
+            file=sys.stderr,
+        )
         return 1
 
     return 0

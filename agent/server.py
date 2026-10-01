@@ -25,6 +25,7 @@ in the graph's in-memory checkpointer. They are gone when the server restarts.
 import asyncio
 import json
 import sys
+import traceback
 from datetime import datetime, timezone
 
 import uvicorn
@@ -335,7 +336,16 @@ def main() -> int:
     except Exception as error:
         if use_direct_tools:
             raise
-        print(f"The MCP server could not be used ({type(error).__name__}). With --direct the agent calls the ticket API itself.")
+        # Most likely the MCP server did not start, but it can be anything else too.
+        # The whole traceback goes to the log first: there the cause must not get
+        # lost. The exit code 1 tells whoever started the container that it failed.
+        traceback.print_exc()
+        # To stderr, like the traceback, so that the two stay in order in the log.
+        print(
+            f"The server stopped on an error ({type(error).__name__}, see above). "
+            "If the MCP server is the cause: with --direct the agent calls the ticket API itself.",
+            file=sys.stderr,
+        )
         return 1
 
     return 0

@@ -254,7 +254,10 @@ What the split between the agent and the server means:
   not the model key.
 - **The server lives as long as what started it.** The command line starts it for one
   run. The web server (`agent/server.py`) starts it once and uses it for every
-  conversation.
+  conversation. A known limit of that: if the MCP server process dies while the web
+  server runs, the web server does not notice. Every tool call then comes back as an
+  error, which the agent reports to the user, until the container is restarted. In
+  production the web server would watch the process and start it again.
 
 **The agent without the server.** `--direct` runs the same agent with tools of its own
 (`agent/tools.py`) that call the API without the MCP step:
