@@ -6,8 +6,9 @@
 # A deploy does not build. It takes a commit SHA and points the server at the image CI
 # already pushed for that commit. Rolling back is deploying an older SHA.
 #
-# The settings live in config/deploy.yml, the secrets in the GitHub environment
-# "production" (SSH_PRIVATE_KEY and POSTGRES_PASSWORD).
+# The settings live in config/deploy.yml. Two secrets are needed: SSH_PRIVATE_KEY on
+# the repository (the backup workflow uses it too) and POSTGRES_PASSWORD in the GitHub
+# environment "production". scripts/setup-deploy-access.sh creates both.
 
 name: Deploy
 
