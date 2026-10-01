@@ -197,6 +197,10 @@ export class ChatComponent implements OnInit, AfterViewChecked, OnDestroy {
         this.show(detail);
 
         if (detail.running) {
+          if (!this.watching) {
+            // So that the history marks the conversation as working from now on.
+            this.refreshConversations();
+          }
           this.watching = true;
           this.busy = true;
           this.pollTimer = setTimeout(() => this.load(conversationId), POLL_INTERVAL_MS);
