@@ -1,0 +1,5 @@
+# What the agent uses directly. constraints.txt pins everything these pull in.
+langgraph==1.2.12
+langchain-openai==1.6.7
+httpx==0.28.1
+python-dotenv==1.2.4

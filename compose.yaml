@@ -27,5 +27,23 @@ services:
     ports:
       - "8080:8080"
 
+  # The agent is a command-line program, not a server, so "docker compose up" does not
+  # start it (the profile keeps it out). Run it with:  docker compose run --rm agent
+  agent:
+    build: ./agent
+    profiles: ["agent"]
+    depends_on:
+      - api
+    environment:
+      # Inside the compose network the API is reached by its service name.
+      TICKET_API_URL: http://api:8080
+      # The values come from the .env file next to this file (see .env.example).
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-}
+    stdin_open: true
+    tty: true
+
 volumes:
   pgdata:
