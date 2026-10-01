@@ -109,5 +109,10 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:${{ github.sha }}
             ${{ env.IMAGE }}:main
+          # Kamal refuses to deploy an image without a service label that matches
+          # "service" in config/deploy.yml. Kamal stamps it when it builds an image
+          # itself; here CI builds, so CI stamps it.
+          labels: |
+            service=ticketing-api
           cache-from: type=gha
           cache-to: type=gha,mode=max
