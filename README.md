@@ -257,10 +257,17 @@ What the split between the agent and the server means:
   not the model key.
 - **The server lives as long as what started it.** The command line starts it for one
   run. The web server (`agent/server.py`) starts it once and uses it for every
-  conversation. A known limit of that: if the MCP server process dies while the web
-  server runs, the web server does not notice. Every tool call then comes back as an
-  error, which the agent reports to the user, until the container is restarted. In
-  production the web server would watch the process and start it again.
+  conversation.
+- **A dead server is started again.** If the MCP server process dies while the web
+  server runs, the web server stays up and the conversations, which live in its
+  memory, are kept. Before every tool call the connection (`McpConnection` in
+  `agent/mcp_client.py`) asks the server a question that changes nothing
+  (`tools/list`; MCP no longer has a ping). If there is no answer, it starts the
+  server again and then makes the call. A lock makes sure that two calls at the same
+  time start one server, not two. The call itself is never repeated: if the server
+  dies in the middle of a call, nobody knows whether the ticket API was already
+  called, and a repeated `create_ticket` would make a second ticket. That call comes
+  back as an error, and the next one heals the connection.
 
 **The agent without the server.** `--direct` runs the same agent with tools of its own
 (`agent/tools.py`) that call the API without the MCP step:
@@ -282,6 +289,13 @@ docker compose run --rm agent python evals/run.py --direct
 The first starts the server, lists its tools and compares them with the direct tools:
 names, descriptions and arguments. It needs no model and CI runs it. The second runs
 the evals below without the MCP server; all 14 cases pass both ways.
+
+A third check, also without a model and also run by CI, kills the server process and
+checks that the next call starts it again, once:
+
+```bash
+docker compose run --rm agent python check_mcp_restart.py
+```
 
 Other MCP clients can use the server too. For a client that starts its servers by
 command, the command is:
@@ -395,7 +409,7 @@ Each test creates the ticket it needs and removes it afterwards.
 | Job | What it does |
 |---|---|
 | API tests | Starts the database and the API with the same compose command as above, and runs the tests. |
-| Agent image | Builds the agent image, checks that the program and the server load, and checks that the MCP server offers the same tools as the direct ones. It makes no model call; the evals below do that, in a workflow of their own. |
+| Agent image | Builds the agent image, checks that the program and the server load, checks that the MCP server offers the same tools as the direct ones, and checks that a killed MCP server is started again. It makes no model call; the evals below do that, in a workflow of their own. |
 | Terraform validate | `terraform fmt -check`, `init` and `validate` on `infra/`. |
 | API image | Builds the API image. On main it is pushed to the GitHub container registry, tagged with the commit SHA. |
 | Agent and web images | Builds the agent image and the web image, which is also the check that the Angular app compiles. On main they are pushed like the API image. |

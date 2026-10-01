@@ -68,6 +68,11 @@ jobs:
       - name: Check that the MCP server offers the same tools as the direct ones
         run: docker compose run --rm -T --no-deps agent python check_mcp.py
 
+      # Kills the MCP server process and checks that the next tool call starts it
+      # again, once. Also without the model and the API.
+      - name: Check that a killed MCP server is started again
+        run: docker compose run --rm -T --no-deps agent python check_mcp_restart.py
+
   terraform:
     name: Terraform validate
     runs-on: ubuntu-latest
