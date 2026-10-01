@@ -36,4 +36,10 @@ namespace TicketApi.Contracts
         public DateTime TimeOfVersion { get; set; }
         public JsonElement Snapshot { get; set; }
     }
+
+    public class HealthResponse
+    {
+        public string Status { get; set; }
+        public string Database { get; set; }
+    }
 }

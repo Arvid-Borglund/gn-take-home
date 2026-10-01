@@ -11,6 +11,10 @@ description of how the API would run on Azure.
 | 3 | PR review bot: a Python script run by GitHub Actions | `pr_review/`, `.github/workflows/pr-review.yml` |
 | 4 | Terraform skeleton for Azure | `infra/` |
 
+Around the four parts there is a test suite for the API (`tests/`) and a CI workflow
+that runs it, validates the Terraform files and publishes the API image
+(`.github/workflows/ci.yml`).
+
 ## Run it
 
 You need Docker with Compose, and the Azure OpenAI key from the assignment. Nothing else
@@ -56,6 +60,12 @@ has to be installed: the database, the API and the agent each run in their own c
    ```
 
    [docs/demo.md](docs/demo.md) is the output of that command.
+
+5. Run the API tests (optional).
+
+   ```bash
+   docker compose run --rm tests
+   ```
 
 To stop everything and remove the database volume:
 
@@ -214,14 +224,35 @@ The database is left out on purpose, since the task asks for the minimum. Its
 connection string is a variable; in a real setup the database would be an Azure Database
 for PostgreSQL in the same file.
 
+## Tests and CI
+
+`tests/test_api.py` tests the API from the outside, over HTTP, against the running
+containers. The tests check the status codes and the exact `detail` message of every
+business-rule error, because those messages are what the agent builds its answers on.
+Each test creates the ticket it needs and removes it afterwards.
+
+`.github/workflows/ci.yml` runs on every pull request and on every push to main:
+
+| Job | What it does |
+|---|---|
+| API tests | Starts the database and the API with the same compose command as above, and runs the tests. |
+| Agent image | Builds the agent image and checks that the program loads. It makes no model call: a run that fails because of the model says nothing about the code. |
+| Terraform validate | `terraform fmt -check`, `init` and `validate` on `infra/`. |
+| API image | Builds the API image. On main it is pushed to the GitHub container registry, tagged with the commit SHA. |
+
+The image is built once per commit and never rebuilt for a deploy: a deploy points at
+one of the published tags.
+
 ## Layout
 
 ```
 api/          the ticketing API (C#)
 db/           the database image and the schema
 agent/        the agent and its CLI (Python)
+tests/        tests of the API over HTTP (Python)
 pr_review/    the PR review script (Python)
 infra/        Terraform for Azure
 docs/         the demo transcript
-compose.yaml  database, API and agent as containers
+.github/      the CI workflow and the PR review workflow
+compose.yaml  database, API, agent and tests as containers
 ```

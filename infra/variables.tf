@@ -25,7 +25,7 @@ variable "sku_name" {
 variable "api_image" {
   description = "Container image of the ticket API with its tag, without the registry address."
   type        = string
-  default     = "arvid-borglund/gn-take-home/api:latest"
+  default     = "arvid-borglund/gn-take-home/api:main"
 }
 
 variable "database_connection_string" {

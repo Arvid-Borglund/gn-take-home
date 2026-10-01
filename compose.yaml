@@ -45,5 +45,15 @@ services:
     stdin_open: true
     tty: true
 
+  # Tests of the API over HTTP. Like the agent, they are run on request:
+  #   docker compose run --rm tests
+  tests:
+    build: ./tests
+    profiles: ["tests"]
+    depends_on:
+      - api
+    environment:
+      TICKET_API_URL: http://api:8080
+
 volumes:
   pgdata:
