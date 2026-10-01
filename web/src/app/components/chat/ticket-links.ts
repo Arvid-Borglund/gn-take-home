@@ -4,9 +4,10 @@ import { TextPart, TicketRef } from '../../models/chat.model';
  * Splits an answer into plain text and ticket links.
  *
  * "#4" and "ticket 4" become links, but only when ticket 4 is among the tickets the
- * reply is about. Those come from the tool results (see agent/transcript.py), so a link
- * always leads to a ticket the API really returned. Any other number stays plain text:
- * it is the user's own, a ticket that does not exist, or something the model made up.
+ * reply is about. Those come from the agent's tool calls and their results (see
+ * agent/transcript.py), never from the model's text. Any other number stays plain
+ * text: it is the user's own, a ticket that does not exist, or something the model
+ * made up.
  *
  * The parts are shown with Angular's normal text binding, so nothing the model writes
  * is ever treated as HTML.

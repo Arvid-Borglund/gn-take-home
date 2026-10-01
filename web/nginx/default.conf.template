@@ -1,0 +1,80 @@
+# nginx serves the built Angular app and is the only thing the browser talks to.
+# It passes the API paths on to the other containers, so the browser needs no CORS setup.
+#
+# This file is a template. The nginx image runs it through envsubst when the container
+# starts and puts the result in /etc/nginx/conf.d/. Only SITE_PRIVATE, API_HOST and
+# AGENT_HOST are replaced (NGINX_ENVSUBST_FILTER in the Dockerfile), so nginx's own
+# variables ($uri, $host ...) are left alone.
+
+server {
+    listen 80;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # "on" asks for a user name and a password on everything below, "off" asks for
+    # nothing. Off is the default in the Dockerfile, so a local run is open.
+    include /etc/nginx/private/${SITE_PRIVATE}.conf;
+
+    # Docker's own DNS. The short lifetime is on purpose: a deploy replaces the API
+    # container, and the new one has a new address behind the same name.
+    resolver 127.0.0.11 valid=5s ipv6=off;
+
+    # The deploy proxy's health check. No password here: with SITE_PRIVATE=on the check
+    # would get 401, never pass, and the deploy would never switch over.
+    location = /up {
+        auth_basic off;
+        access_log off;
+        return 200 "ok";
+    }
+
+    # The Angular app. A path that is not a file gets index.html.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # The chat: the agent server (agent/server.py).
+    #
+    # The host name is put in a variable so that nginx looks it up for every request,
+    # through the resolver above, instead of once at start.
+    location /api/chat/ {
+        set $agent_upstream http://${AGENT_HOST}:8000;
+        proxy_pass $agent_upstream;
+
+        # The answer is a stream of events. Pass each one on at once, and wait long
+        # enough for a slow model call.
+        proxy_http_version 1.1;
+        proxy_set_header Connection '';
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+    }
+
+    # The ticket viewer reads tickets from the ticket API:
+    # /api/tickets/4 here is /tickets/4 there.
+    location /api/tickets/ {
+        # Reading only. A request that would change a ticket is refused here, so the
+        # only way to change one from the web interface is to ask the agent.
+        limit_except GET {
+            deny all;
+        }
+
+        set $api_upstream http://${API_HOST}:8080;
+        rewrite ^/api/tickets/(.*)$ /tickets/$1 break;
+        proxy_pass $api_upstream;
+    }
+
+    # The ticket API itself and its Swagger page, for whoever wants to call it directly.
+    # Locally the API also has its own port; on the server this is the only way to it.
+    location ~ ^/(tickets|swagger)(/|$) {
+        set $api_upstream http://${API_HOST}:8080;
+        proxy_pass $api_upstream;
+    }
+
+    # The API's health check: says whether the API reaches its database, nothing else.
+    # No password, so the deploy workflow can check the whole chain from outside.
+    location = /health {
+        auth_basic off;
+        set $api_upstream http://${API_HOST}:8080;
+        proxy_pass $api_upstream;
+    }
+}

@@ -69,6 +69,11 @@ services:
     depends_on:
       - api
       - agent-server
+    environment:
+      # Open locally. "on" asks for a password, and then BASIC_AUTH_HTPASSWD must be
+      # set too (see web/nginx/40-htpasswd.sh). The deployed site runs with "on".
+      SITE_PRIVATE: ${SITE_PRIVATE:-off}
+      BASIC_AUTH_HTPASSWD: ${BASIC_AUTH_HTPASSWD:-}
     ports:
       - "${WEB_PORT:-8081}:80"
 
