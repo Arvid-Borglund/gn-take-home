@@ -3,3 +3,5 @@ langgraph==1.2.12
 langchain-openai==1.6.7
 httpx==0.28.1
 python-dotenv==1.2.4
+# Only the evals use this one directly (evals/cases.yaml).
+PyYAML==6.0.3

@@ -1,0 +1,79 @@
+# Runs the agent evals: fixed questions against the real model, with fixed expectations
+# on which tools the agent calls, with which arguments, and what happens to the tickets.
+#
+# Kept apart from ci.yml on purpose. CI checks things that give the same result every
+# time. The evals call a language model: they cost a little, take a couple of minutes,
+# and can fail for reasons that are not in the code. They therefore run only when
+# something the agent's behaviour depends on has changed, or on request, and they do not
+# decide whether an image is published.
+
+name: Agent evals
+
+on:
+  pull_request:
+    paths:
+      - 'agent/**'
+      - 'api/**'
+      - 'db/**'
+      - 'compose.yaml'
+      - '.github/workflows/evals.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'agent/**'
+      - 'api/**'
+      - 'db/**'
+      - 'compose.yaml'
+      - '.github/workflows/evals.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    name: Agent evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # compose.yaml passes these four on to the agent container.
+      AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+      AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+      AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+      AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # A fork has no access to the secret, and the key can be removed from the
+      # repository. Without a key there is nothing to run, which is not a failure.
+      - name: Is there a model key?
+        id: key
+        run: |
+          if [ -z "$AZURE_OPENAI_API_KEY" ]; then
+            echo "::notice::No model key is configured, so the evals were skipped."
+            echo "present=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=yes" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Start the database and the API
+        if: steps.key.outputs.present == 'yes'
+        run: docker compose up -d --build
+
+      # The result table also goes to the summary page of the run.
+      - name: Run the evals
+        if: steps.key.outputs.present == 'yes'
+        run: |
+          set -o pipefail
+          {
+            echo '## Agent evals'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          result=0
+          docker compose run --rm -T agent python evals/run.py | tee -a "$GITHUB_STEP_SUMMARY" || result=$?
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit $result

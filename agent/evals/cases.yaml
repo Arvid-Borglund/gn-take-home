@@ -1,0 +1,183 @@
+# Eval cases for the agent. Run them with:
+#
+#   docker compose run --rm agent python evals/run.py
+#
+# Before every case the runner creates four tickets and puts their ids in the
+# placeholders below. After the case it removes them again.
+#
+#   {printer}  OPEN      "Printer out of toner"
+#   {monitor}  OPEN      "Monitor flickers"
+#   {vpn}      RESOLVED  "VPN disconnects"         resolution "Updated the VPN client"
+#   {laptop}   CLOSED    "Laptop battery swollen"
+#   {missing}  an id that does not exist
+#
+# What a case can expect:
+#
+#   tools           the exact list of tools the agent called, in order
+#   tools_include   each of these tools was called at least once
+#   tools_not       none of these tools was called
+#   max_tool_calls  at most this many tool calls in total
+#   calls           each entry: one call to that tool had these arguments
+#                   (a text matches when it is found in the argument, ignoring case)
+#   answer_has      each of these texts is in the final answer, ignoring case
+#   answer_has_any  at least one of these texts is in the final answer
+#   answer_lacks    none of these texts is in the final answer
+#   tickets         the state of tickets in the API after the case:
+#                   status, resolution, exists (yes/no), comment (a text in one comment)
+#
+# confirm is what the runner answers when the agent asks before a delete (default: no).
+
+cases:
+  # ----- The six requests from the assignment -----
+
+  - id: create-from-a-topic
+    question: "Create a new ticket about a keyboard not working."
+    expect:
+      tools: [create_ticket]
+      calls:
+        - tool: create_ticket
+          args: { title: "keyboard" }
+
+  - id: list-open-tickets
+    question: "Retrieve all open tickets."
+    expect:
+      tools: [list_tickets]
+      calls:
+        - tool: list_tickets
+          args: { status: "open" }
+      answer_has: ["Printer out of toner", "Monitor flickers"]
+      answer_lacks: ["VPN disconnects", "Laptop battery swollen"]
+
+  - id: get-one-ticket
+    question: "Get details for ticket {printer}."
+    expect:
+      tools: [get_ticket]
+      calls:
+        - tool: get_ticket
+          args: { ticket_id: "{printer}" }
+      answer_has: ["Printer out of toner"]
+
+  # The status goes to the API as the user wrote it, the API rejects it, and the agent
+  # reports the valid ones. Exactly one call: no second try with a guessed status.
+  - id: invalid-status
+    question: "Update ticket {printer} to have the status 'PROGRESS'."
+    expect:
+      tools: [update_ticket]
+      calls:
+        - tool: update_ticket
+          args: { ticket_id: "{printer}", status: "PROGRESS" }
+      answer_has: ["OPEN", "RESOLVED", "CLOSED"]
+      tickets:
+        - id: "{printer}"
+          status: OPEN
+
+  - id: resolve-with-a-note
+    question: "Update ticket {printer} to be RESOLVED, adding 'Replaced faulty cable' as the resolution."
+    expect:
+      tools: [update_ticket]
+      calls:
+        - tool: update_ticket
+          args: { ticket_id: "{printer}", status: "RESOLVED", resolution: "Replaced faulty cable" }
+      tickets:
+        - id: "{printer}"
+          status: RESOLVED
+          resolution: "Replaced faulty cable"
+
+  - id: unknown-id
+    question: "Update ticket {missing} to 'CLOSED'."
+    expect:
+      tools_include: [update_ticket]
+      tools_not: [create_ticket, delete_ticket]
+      max_tool_calls: 2
+      calls:
+        - tool: update_ticket
+          args: { ticket_id: "{missing}", status: "CLOSED" }
+      answer_has_any: ["does not exist", "doesn't exist", "doesn’t exist", "not exist", "not found"]
+
+  # ----- The optional rule: a resolution note is required -----
+
+  - id: resolve-without-a-note
+    question: "Mark ticket {monitor} as resolved."
+    expect:
+      tools_not: [create_ticket, delete_ticket]
+      answer_has: ["resolution"]
+      tickets:
+        - id: "{monitor}"
+          status: OPEN
+
+  # ----- The user describes the ticket instead of giving its id -----
+
+  - id: find-by-topic-then-comment
+    question: "Add a comment to the ticket about the printer: 'Technician booked for Friday'."
+    expect:
+      tools_include: [list_tickets, add_comment]
+      tools_not: [create_ticket, delete_ticket, update_ticket]
+      calls:
+        - tool: add_comment
+          args: { ticket_id: "{printer}", body: "Technician booked for Friday" }
+      tickets:
+        - id: "{printer}"
+          comment: "Technician booked for Friday"
+
+  - id: find-by-topic-then-close
+    question: "Close the ticket about the flickering monitor."
+    expect:
+      tools_include: [list_tickets, update_ticket]
+      tools_not: [create_ticket, delete_ticket]
+      calls:
+        - tool: update_ticket
+          args: { ticket_id: "{monitor}", status: "CLOSED" }
+      tickets:
+        - id: "{monitor}"
+          status: CLOSED
+        - id: "{printer}"
+          status: OPEN
+
+  # ----- Filtering and history -----
+
+  - id: filter-resolved
+    question: "Which tickets have been resolved?"
+    expect:
+      tools: [list_tickets]
+      calls:
+        - tool: list_tickets
+          args: { status: "resolved" }
+      answer_has: ["VPN disconnects"]
+      answer_lacks: ["Printer out of toner", "Monitor flickers"]
+
+  - id: ticket-history
+    question: "Show me the history of ticket {vpn}."
+    expect:
+      tools_include: [get_ticket_history]
+      tools_not: [update_ticket, delete_ticket, create_ticket]
+      calls:
+        - tool: get_ticket_history
+          args: { ticket_id: "{vpn}" }
+      answer_has: ["RESOLVED"]
+
+  # ----- Delete goes through the confirmation step -----
+
+  - id: delete-declined
+    question: "Delete ticket {laptop}."
+    confirm: no
+    expect:
+      tools: [delete_ticket]
+      tickets:
+        - id: "{laptop}"
+          exists: yes
+
+  - id: delete-confirmed
+    question: "Delete ticket {laptop}."
+    confirm: yes
+    expect:
+      tools: [delete_ticket]
+      tickets:
+        - id: "{laptop}"
+          exists: no
+
+  # ----- No tool is needed -----
+
+  - id: greeting
+    question: "Hi! What can you help me with?"
+    expect:
+      tools: []

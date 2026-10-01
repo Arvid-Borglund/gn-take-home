@@ -9,6 +9,7 @@ COPY requirements.txt constraints.txt ./
 RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 COPY *.py ./
+COPY evals ./evals
 
 # No root in the container. The agent writes nothing to disk.
 RUN useradd --system --uid 10001 agent
