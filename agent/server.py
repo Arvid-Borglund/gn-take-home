@@ -18,6 +18,10 @@ graph: a tool call, a tool result, the agent's answer, or a question to the user
     event: error         the turn failed
     event: done          the stream is over
 
+A turn does not depend on that stream. It runs as a task of its own and puts its events
+in a queue that the response reads from, so a turn runs to its end even if the browser
+hangs up in the middle of it (see "Running the graph" in ChatServer).
+
 The conversations live in this process: the list of them in ChatServer, their messages
 in the graph's in-memory checkpointer. They are gone when the server restarts.
 """
@@ -49,6 +53,12 @@ PORT = 8000
 # A conversation is named after its first message, cut to this length.
 MAX_TITLE_LENGTH = 60
 
+# Put in a turn's queue after its last event: it tells the reader that the turn is over.
+END_OF_TURN = None
+
+# The answer to a message or a confirmation that arrives while a turn is running.
+STILL_WORKING = "The agent is still working on the previous message. Wait for it to finish."
+
 
 # ----- Request bodies -----
 
@@ -72,6 +82,13 @@ class Conversation:
         # so the conversation takes no more messages. The CLI does the same thing: it
         # starts a new conversation after a failed turn.
         self.failed = False
+        # The task that runs the current turn, or the last one (ChatServer._run_turn).
+        # Keeping it here does two things: it tells whether a turn is running, and it
+        # keeps the task from being thrown away while it runs.
+        self.turn_task = None
+
+    def turn_is_running(self) -> bool:
+        return self.turn_task is not None and not self.turn_task.done()
 
     def to_dict(self) -> dict:
         return {
@@ -80,6 +97,7 @@ class Conversation:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "failed": self.failed,
+            "running": self.turn_is_running(),
         }
 
 
@@ -170,6 +188,9 @@ class ChatServer:
 
     async def delete_conversation(self, conversation_id: int) -> Response:
         conversation = self._find(conversation_id)
+        if conversation.turn_is_running():
+            raise HTTPException(status_code=409, detail="The agent is still working in this conversation. Delete it when it has finished.")
+
         await self._graph.checkpointer.adelete_thread(self._thread_id(conversation))
         del self._conversations[conversation_id]
         return Response(status_code=204)
@@ -184,6 +205,11 @@ class ChatServer:
             raise HTTPException(status_code=409, detail="This conversation stopped on an error. Start a new one.")
 
         state = await self._graph.aget_state(self._config(conversation))
+
+        # From here to _start_turn there is no "await", so no other request can get in
+        # between the checks and the start: a conversation runs one turn at a time.
+        if conversation.turn_is_running():
+            raise HTTPException(status_code=409, detail=STILL_WORKING)
         if pending_question(state) is not None:
             raise HTTPException(status_code=409, detail="The agent is waiting for a yes or no to a deletion.")
 
@@ -191,12 +217,16 @@ class ChatServer:
             conversation.title = content[:MAX_TITLE_LENGTH]
 
         graph_input = {"messages": [HumanMessage(content=content)]}
-        return self._stream(conversation, graph_input, Reply())
+        return self._start_turn(conversation, graph_input, Reply())
 
     async def post_confirmation(self, conversation_id: int, body: Confirmation) -> StreamingResponse:
         conversation = self._find(conversation_id)
 
         state = await self._graph.aget_state(self._config(conversation))
+
+        # No "await" from here to _start_turn, as in post_message.
+        if conversation.turn_is_running():
+            raise HTTPException(status_code=409, detail=STILL_WORKING)
         if pending_question(state) is None:
             raise HTTPException(status_code=409, detail="The agent is not waiting for a confirmation.")
 
@@ -206,23 +236,43 @@ class ChatServer:
 
         # Command(resume=...) continues the graph from the interrupt() that stopped it.
         graph_input = Command(resume=body.confirmed)
-        return self._stream(conversation, graph_input, reply)
+        return self._start_turn(conversation, graph_input, reply)
 
     # ----- Running the graph -----
+    #
+    # A turn is split in two, with a queue between them:
+    #
+    #   _run_turn     the producer. It runs the graph and puts every event in the queue.
+    #                 It is a task of its own, started by _start_turn, and it does not
+    #                 know whether anyone reads the queue.
+    #   _read_events  the consumer. It takes the events out of the queue and hands them
+    #                 to the browser. It is the body of the HTTP response.
+    #
+    # The reason is what happens when the browser hangs up in the middle of a turn (a
+    # closed tab, a reload). The HTTP response is then stopped, wherever it is. If the
+    # response itself ran the graph, the graph would stop too, possibly after the model
+    # has asked for a tool and before the tool has answered. The conversation would be
+    # left with a question without an answer, and the model refuses to continue from
+    # that. With the split, only the reader stops. The turn runs to its end (or to the
+    # question before a delete), so what is saved is always a finished exchange, and the
+    # browser gets it when it asks for the conversation again.
 
-    def _stream(self, conversation: Conversation, graph_input, reply: Reply) -> StreamingResponse:
+    def _start_turn(self, conversation: Conversation, graph_input, reply: Reply) -> StreamingResponse:
+        # The queue has no size limit, so the producer never has to wait for a reader.
+        events = asyncio.Queue()
+        conversation.turn_task = asyncio.create_task(self._run_turn(conversation, graph_input, reply, events))
+
         headers = {
             "Cache-Control": "no-cache",
             # Tells nginx to pass every event on at once instead of collecting them.
             "X-Accel-Buffering": "no",
         }
-        events = self._run_turn(conversation, graph_input, reply)
-        return StreamingResponse(events, media_type="text/event-stream", headers=headers)
+        return StreamingResponse(self._read_events(events), media_type="text/event-stream", headers=headers)
 
-    async def _run_turn(self, conversation: Conversation, graph_input, reply: Reply):
-        """Runs the graph and yields what happens as server-sent events. This is the
-        same loop as run_turn in main.py, with "send to the browser" where the CLI
-        prints."""
+    async def _run_turn(self, conversation: Conversation, graph_input, reply: Reply, events: asyncio.Queue) -> None:
+        """Runs the graph for one turn and puts what happens in the queue, as
+        server-sent events. This is the same loop as run_turn in main.py, with "put in
+        the queue" where the CLI prints."""
         try:
             # stream_mode="updates" gives one item per finished node, holding what that
             # node added to the state. A stop at interrupt() arrives under "__interrupt__".
@@ -230,7 +280,7 @@ class ChatServer:
                 for node_name in update:
                     if node_name == "__interrupt__":
                         question = update[node_name][0].value
-                        yield sse("confirm", question)
+                        events.put_nowait(sse("confirm", question))
                         continue
 
                     node_update = update[node_name]
@@ -239,19 +289,35 @@ class ChatServer:
 
                     for message in node_update.get("messages", []):
                         for event in reply.add(message):
-                            yield sse(event["event"], event["data"])
+                            events.put_nowait(sse(event["event"], event["data"]))
 
         except GraphRecursionError:
             conversation.failed = True
             message = f"I stopped after {MAX_GRAPH_STEPS} steps without finishing. Try a more specific request."
-            yield sse("error", {"message": message})
+            # Perhaps nobody reads the queue any more. The log always gets the error.
+            print(f"Conversation {conversation.id}: {message}", file=sys.stderr)
+            events.put_nowait(sse("error", {"message": message}))
         except Exception as error:
             conversation.failed = True
             message = f"The language model call failed ({type(error).__name__}): {error}"
-            yield sse("error", {"message": message})
+            print(f"Conversation {conversation.id}: the turn failed.", file=sys.stderr)
+            traceback.print_exc()
+            events.put_nowait(sse("error", {"message": message}))
 
         conversation.updated_at = now()
-        yield sse("done", {})
+        events.put_nowait(sse("done", {}))
+        events.put_nowait(END_OF_TURN)
+
+    async def _read_events(self, events: asyncio.Queue):
+        """Hands the events of a turn to the browser, one at a time as they arrive.
+
+        If the browser hangs up, this function is stopped where it waits and nothing
+        else happens: the turn goes on in its own task."""
+        while True:
+            event = await events.get()
+            if event is END_OF_TURN:
+                return
+            yield event
 
     # ----- Helpers -----
 
