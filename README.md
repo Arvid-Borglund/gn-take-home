@@ -11,9 +11,10 @@ description of how the API would run on Azure.
 | 3 | PR review bot: a Python script run by GitHub Actions | `pr_review/`, `.github/workflows/pr-review.yml` |
 | 4 | Terraform skeleton for Azure | `infra/` |
 
-Around the four parts there is a test suite for the API (`tests/`) and a CI workflow
-that runs it, validates the Terraform files and publishes the API image
-(`.github/workflows/ci.yml`).
+Around the four parts there is what it takes to run the system for real: tests of the
+API, evals of the agent, a CI workflow, a deploy to a server with Kamal, Terraform for
+that server with remote state, and a nightly database backup. Each has its own section
+below.
 
 ## Run it
 
@@ -224,6 +225,9 @@ The database is left out on purpose, since the task asks for the minimum. Its
 connection string is a variable; in a real setup the database would be an Azure Database
 for PostgreSQL in the same file.
 
+`infra/hetzner/` is a second, separate Terraform configuration: the server the API is
+actually deployed on. It is described under [The server as code](#the-server-as-code).
+
 ## Tests and CI
 
 `tests/test_api.py` tests the API from the outside, over HTTP, against the running
@@ -300,14 +304,61 @@ What a deploy does (`config/deploy.yml`):
 
 What has to exist before the first deploy:
 
-- a GitHub environment named `production` with two secrets: `SSH_PRIVATE_KEY` (a key
-  pair made for the pipeline, with the public half in the server's `authorized_keys`)
-  and `POSTGRES_PASSWORD`,
+- the secret `SSH_PRIVATE_KEY`: a key pair made for the pipeline, with the public half
+  in the server's `authorized_keys`,
+- a GitHub environment named `production`, open to runs from main only, with the secret
+  `POSTGRES_PASSWORD`,
 - the server's host key in `.github/known_hosts`,
 - DNS for the host names in `config/deploy.yml`, pointing at the server.
 
-The first run is started with `bootstrap` ticked: it installs Docker on the server and
-starts the database.
+`scripts/setup-deploy-access.sh` does the first two. The first run is started with
+`bootstrap` ticked: it installs Docker on the server and starts the database.
+
+### The server as code
+
+`infra/hetzner/` is the Terraform for the server at Hetzner: the machine, its reserved
+address and the firewall (22 for the deploy, 80 and 443 for the proxy, and no 5432:
+the database is never reachable from outside).
+
+The server existed before this configuration did, so nothing was created from it. The
+`import` blocks adopt the existing resources into the state, and from then on
+`terraform plan` answers one question: does the machine still look like the code says?
+An empty plan means yes.
+
+- **State** is kept in Cloudflare R2 through the S3 backend, with a lock file, and not
+  on the machine that happened to run Terraform. R2 rather than the server provider's
+  own storage, so that the state does not live with the thing it describes.
+- **`.github/workflows/terraform.yml`** makes a plan on every pull request that touches
+  `infra/hetzner/`, and writes it to the summary of the run. Apply is only run by hand.
+- **The Hetzner token in the repository is read-only.** A plan needs no more, and
+  neither does adopting the existing resources. This repository can describe the server
+  and check it, but not change it or delete it.
+
+To check the files without any credentials:
+
+```bash
+cd infra/hetzner
+terraform init -backend=false
+terraform validate
+```
+
+### Backups
+
+Two kinds, for two different losses:
+
+- **The machine.** Hetzner's own backup takes a daily image of the whole server
+  (`backups = true` in `infra/hetzner/main.tf`). It saves the server.
+- **The data.** `.github/workflows/backup-db.yml` runs every night: `pg_dump` inside
+  the postgres container, pulled out over SSH by the runner and uploaded to R2. It saves
+  the data, and it can be restored anywhere.
+
+Before a dump is uploaded it is restored into a scratch database on the same PostgreSQL,
+and one rule of the schema is checked on the result (every ticket has at least one
+version). A backup that has never been read back is not a backup. The newest 14 dumps
+are kept.
+
+The runner pulls the backup; the server does not push it. The R2 keys exist only as
+GitHub secrets, so a server that has been taken over cannot delete its own backups.
 
 ## Layout
 
@@ -317,10 +368,11 @@ db/           the database image and the schema
 agent/        the agent and its CLI (Python)
 tests/        tests of the API over HTTP (Python)
 pr_review/    the PR review script (Python)
-infra/        Terraform for Azure
+infra/        Terraform for Azure (part 4), and in hetzner/ for the real server
 docs/         the demo transcript
 config/       the Kamal deploy configuration
 .kamal/       the secrets Kamal expects (names only, no values)
-.github/      the workflows: CI, evals, PR review and deploy
+scripts/      one-time setup of the pipeline's access to the server
+.github/      the workflows: CI, evals, PR review, deploy, Terraform and backup
 compose.yaml  database, API, agent and tests as containers
 ```
