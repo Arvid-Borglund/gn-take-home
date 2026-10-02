@@ -4,7 +4,6 @@ the real API, with fixed expectations on what the agent does.
     docker compose run --rm agent python evals/run.py
     docker compose run --rm agent python evals/run.py -k delete   only cases with "delete" in the id
     docker compose run --rm agent python evals/run.py -v          show every check and every answer
-    docker compose run --rm agent python evals/run.py --direct    without the MCP server: the agent's own tools
 
 The checks are about things that can be decided without judging prose: which tools were
 called, with which arguments, and which state the tickets are in afterwards. The wording
@@ -34,7 +33,6 @@ from config import ConfigError, load_settings  # noqa: E402
 from graph import MAX_GRAPH_STEPS, TicketAgent  # noqa: E402
 from mcp_client import McpConnection  # noqa: E402
 from model import build_llm  # noqa: E402
-from tools import build_tools  # noqa: E402
 from transcript import text_of  # noqa: E402
 
 CASES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.yaml")
@@ -346,10 +344,6 @@ async def run_suite(arguments) -> int:
 
     llm = build_llm(settings)
 
-    if arguments.direct:
-        tools = build_tools(client)
-        return await run_cases(cases, llm, tools, client, arguments, settings)
-
     # The tools come from the MCP server, as in the web server.
     connection = McpConnection(settings.ticket_api_url)
     await connection.start()
@@ -400,12 +394,8 @@ async def run_cases(cases: list, llm, tools: list, client: TicketApiClient, argu
             print(f"         question: {question}")
             print(f"         answer:   {run.answer[:400]}")
 
-    tools_from = "tools from the MCP server"
-    if arguments.direct:
-        tools_from = "direct tools"
-
     print()
-    print(f"{passed}/{len(cases)} cases passed (model {settings.azure_deployment}, {tools_from})")
+    print(f"{passed}/{len(cases)} cases passed (model {settings.azure_deployment})")
 
     if passed == len(cases):
         return 0
@@ -416,5 +406,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Runs the agent evals in cases.yaml.")
     parser.add_argument("-k", "--keyword", help="run only the cases whose id contains this text")
     parser.add_argument("-v", "--verbose", action="store_true", help="show every check and every answer")
-    parser.add_argument("--direct", action="store_true", help="let the agent call the API with its own tools instead of going through the MCP server")
     sys.exit(asyncio.run(run_suite(parser.parse_args())))

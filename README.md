@@ -257,23 +257,10 @@ What the split between the agent and the server means:
   called, and a repeated `create_ticket` would make a second ticket. That call comes
   back as an error, and the next one heals the connection.
 
-**The agent without the server.** `--direct` runs the same agent with tools of its own
-(`agent/tools.py`) that call the API without the MCP step. The web server and the evals
-both take the flag. It is kept as a fallback, and as something to compare the MCP path
-with. That means the seven tools are written down twice, in `agent/mcp_server.py` and in
-`agent/tools.py`. Two checks keep the two the same:
-
-```bash
-docker compose run --rm agent python check_mcp.py
-docker compose run --rm agent python evals/run.py --direct
-```
-
-The first starts the server, lists its tools and compares them with the direct tools:
-names, descriptions and arguments. It needs no model and CI runs it. The second runs
-the evals below without the MCP server; all 14 cases pass both ways.
-
-A third check, also without a model and also run by CI, kills the server process and
-checks that the next call starts it again, once:
+**The agent has no tools of its own.** The seven tools are written down in one place,
+the MCP server, and everything the agent does to a ticket goes through it. A check
+without a model, run by CI, kills the server process and checks that the next call
+starts it again, once:
 
 ```bash
 docker compose run --rm agent python check_mcp_restart.py
@@ -320,8 +307,7 @@ How it is built:
 - `agent/server.py` puts the graph behind HTTP with FastAPI. A message is a POST, and
   the answer is a stream of server-sent events, one per thing that happens in the
   graph: a tool call, a tool result, the answer, or the question before a delete. The
-  tools come from the MCP server: the web server starts it once, and
-  `/api/chat/health` says `"tools": "mcp"`.
+  tools come from the MCP server, which the web server starts once.
 - **A turn runs to its end even if the browser hangs up.** The turn is a task of its
   own that runs the graph and puts every event in a queue; the HTTP response only reads
   from that queue. A closed tab or a reload stops the reader, not the turn. Otherwise
@@ -457,7 +443,7 @@ tested the same way: no login, the right one, a wrong password and an unknown us
 | Job | What it does |
 |---|---|
 | API tests | Starts the database and the API with compose and runs the tests. |
-| Agent image | Builds the agent image, checks that the server loads, checks that the MCP server offers the same tools as the direct ones, checks that a killed MCP server is started again, and checks, against a real database, that a turn in the web server survives a reader that hangs up and that a conversation is kept for its user. It makes no model call; the evals below do that, in a workflow of their own. |
+| Agent image | Builds the agent image, checks that the server loads, checks that a killed MCP server is started again, and checks, against a real database, that a turn in the web server survives a reader that hangs up and that a conversation is kept for its user. It makes no model call; the evals below do that, in a workflow of their own. |
 | Terraform validate | `terraform fmt -check`, `init` and `validate` on `infra/`. |
 | API image | Builds the API image. On main it is pushed to the GitHub container registry, tagged with the commit SHA. |
 | Agent and web images | Builds the agent image and the web image, which is also the check that the Angular app compiles. On main they are pushed like the API image. |

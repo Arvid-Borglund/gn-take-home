@@ -42,9 +42,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import StructuredTool
 
 from conversations import Conversations, build_checkpointer, open_database
-from graph import TicketAgent
+from graph import DELETE_TOOL_NAME, TicketAgent
 from server import ChatServer, Confirmation, NewMessage
-from tools import DELETE_TOOL_NAME
 
 # How long the lookup tool takes. Long enough for a reader to hang up while it runs.
 TOOL_SECONDS = 0.3
@@ -96,7 +95,7 @@ async def build_server(pool, answers: list) -> ChatServer:
     graph = TicketAgent(ScriptedModel(answers), tools).build(checkpointer)
 
     # No ticket API client and no settings: only /health and /scenarios use them.
-    return ChatServer(graph, None, None, "direct", Conversations(pool))
+    return ChatServer(graph, None, None, Conversations(pool))
 
 
 def asks_for(tool_name: str, ticket_id: int) -> AIMessage:

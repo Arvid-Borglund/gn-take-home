@@ -1,8 +1,7 @@
 """The agent's side of MCP: starts the MCP server and makes its tools usable in the graph.
 
 The agent does not call the ticket API itself. It starts mcp_server.py as a subprocess
-and reaches the API through it (the web server in server.py and the evals both do;
---direct turns it off):
+and reaches the API through it (the web server in server.py and the evals both do):
 
     agent  --MCP over stdio-->  mcp_server.py  --HTTP-->  ticket API
 
@@ -19,9 +18,8 @@ McpConnection owns that subprocess. What happens, in order:
    again first, so the web server heals without being restarted itself.
 4. stop() stops the server.
 
-The graph does not know where its tools come from. It gets a list of tools with the
-same names as the direct ones in tools.py, so the confirmation before delete_ticket
-works the same way with both.
+The graph does not know where its tools come from. It gets a list of tools, and knows
+one of them by name: delete_ticket, which it asks the user about first (graph.py).
 """
 
 import asyncio
@@ -225,5 +223,5 @@ class McpToolCaller:
 
         # A failed call (result.is_error) is not an exception here either. The text
         # already says what went wrong ("API ERROR 422: ..."), and the model gets it
-        # as the tool result, exactly as with the direct tools.
+        # as the tool result.
         return text_of_result(result)
