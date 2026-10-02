@@ -27,6 +27,10 @@ const LIST_POLL_INTERVAL_MS = 3000;
  * A turn does not belong to the page that started it: the server runs it to the end
  * either way. A page that opens a conversation in the middle of a turn follows it by
  * reading the conversation again every other second (load()).
+ *
+ * The requests from the assignment can be sent with a click instead of being typed:
+ * from the intro of an empty conversation, and after that from the Scenarios menu at
+ * the input. Both show the same list (the template scenarioList).
  */
 @Component({
   selector: 'app-chat',
@@ -51,9 +55,7 @@ const LIST_POLL_INTERVAL_MS = 3000;
             to the chat.
           </p>
           <div class="examples-heading">The requests from the assignment</div>
-          <div class="examples">
-            <button *ngFor="let scenario of scenarios" type="button" (click)="ask(scenario)">{{ scenario }}</button>
-          </div>
+          <ng-container *ngTemplateOutlet="scenarioList"></ng-container>
         </div>
 
         <app-chat-message *ngFor="let message of messages" [message]="message"
@@ -66,13 +68,34 @@ const LIST_POLL_INTERVAL_MS = 3000;
       </div>
       <div *ngIf="notice" class="notice">{{ notice }}</div>
 
+      <div *ngIf="scenarioMenuOpen && canType()" class="scenario-menu">
+        <div class="examples-heading">The requests from the assignment</div>
+        <ng-container *ngTemplateOutlet="scenarioList"></ng-container>
+      </div>
+
       <form class="composer" (ngSubmit)="send()">
+        <!-- An empty conversation shows the requests in its intro. Once it has
+             messages, the same list is behind this button. -->
+        <button *ngIf="messages.length > 0" type="button" class="scenarios-button"
+                [class.open]="scenarioMenuOpen && canType()"
+                [disabled]="!canType() || scenarios.length === 0"
+                (click)="toggleScenarioMenu()" title="The requests from the assignment">Scenarios</button>
         <textarea [(ngModel)]="draft" name="draft" rows="1" autocomplete="off"
                   [placeholder]="waitingForConfirmation ? 'Answer the question above first' : 'Type a request'"
                   (keydown.enter)="onEnter($event)" [disabled]="!canType()"></textarea>
         <button type="submit" [disabled]="!canType() || draft.trim() === ''">Send</button>
       </form>
     </div>
+
+    <!-- The requests from the assignment as numbered buttons. A click sends the request.
+         Used in two places above: the intro and the menu at the input. -->
+    <ng-template #scenarioList>
+      <div class="examples">
+        <button *ngFor="let scenario of scenarios; let index = index" type="button" (click)="ask(scenario)">
+          <span class="number">{{ index + 1 }}</span>{{ scenario }}
+        </button>
+      </div>
+    </ng-template>
   `,
   styles: [`
     :host { display: flex; flex: 1; min-width: 0; min-height: 0; }
@@ -86,8 +109,11 @@ const LIST_POLL_INTERVAL_MS = 3000;
     .examples { display: flex; flex-direction: column; gap: 6px; }
     .examples button { text-align: left; background: var(--cream-light); border: 1px solid var(--grey-light); border-left: 3px solid var(--orange); border-radius: 8px; padding: 9px 12px; font-size: 13px; cursor: pointer; color: var(--ink); }
     .examples button:hover { border-color: var(--orange); }
+    .examples .number { display: inline-block; width: 20px; color: var(--orange-dark); font-weight: 700; }
 
     .notice { margin: 0 24px 8px; padding: 8px 12px; border-radius: 8px; background: #FBE6DA; color: #7A2E06; font-size: 13px; }
+
+    .scenario-menu { margin: 0 24px 10px; }
 
     .composer { display: flex; gap: 8px; padding: 14px 24px 18px; border-top: 1px solid var(--grey-light); background: var(--cream-light); }
     .composer textarea { flex: 1; resize: none; border: 1px solid var(--grey-light); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 14px; background: #fff; color: var(--ink); }
@@ -95,6 +121,8 @@ const LIST_POLL_INTERVAL_MS = 3000;
     .composer button { background: var(--orange); color: #fff; border: 0; border-radius: 10px; padding: 0 20px; font-size: 14px; font-weight: 600; cursor: pointer; }
     .composer button:hover { background: var(--orange-dark); }
     .composer button:disabled { opacity: .45; cursor: default; }
+    .composer .scenarios-button { background: transparent; color: var(--teal); border: 1px solid var(--teal); padding: 0 14px; }
+    .composer .scenarios-button:hover, .composer .scenarios-button.open { background: var(--teal-soft); }
   `]
 })
 export class ChatComponent implements OnInit, AfterViewChecked, OnDestroy {
@@ -112,6 +140,8 @@ export class ChatComponent implements OnInit, AfterViewChecked, OnDestroy {
   waitingForConfirmation = false;
   /** Why the server refused the last request. Shown above the input. */
   notice = '';
+  /** The menu with the requests from the assignment, at the input, is open. */
+  scenarioMenuOpen = false;
 
   private stream?: Subscription;
   private scrollPending = false;
@@ -192,12 +222,21 @@ export class ChatComponent implements OnInit, AfterViewChecked, OnDestroy {
     });
   }
 
+  toggleScenarioMenu(): void {
+    this.scenarioMenuOpen = !this.scenarioMenuOpen;
+    if (this.scenarioMenuOpen) {
+      // The requests name real tickets, so the list is read again when it is shown.
+      this.refreshScenarios();
+    }
+  }
+
   newConversation(): void {
     this.cancelStream();
     this.current = null;
     this.messages = [];
     this.waitingForConfirmation = false;
     this.notice = '';
+    this.scenarioMenuOpen = false;
     this.refreshScenarios();
   }
 
@@ -206,6 +245,7 @@ export class ChatComponent implements OnInit, AfterViewChecked, OnDestroy {
     this.current = conversation;
     this.waitingForConfirmation = false;
     this.notice = '';
+    this.scenarioMenuOpen = false;
     this.load(conversation.id);
   }
 
@@ -324,6 +364,7 @@ export class ChatComponent implements OnInit, AfterViewChecked, OnDestroy {
 
     this.draft = '';
     this.notice = '';
+    this.scenarioMenuOpen = false;
     this.busy = true;
     this.messages.push({ role: 'user', content: content });
     const reply: ChatMessage = { role: 'assistant', content: '', steps: [], tickets: [], streaming: true };
