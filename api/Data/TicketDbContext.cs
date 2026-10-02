@@ -17,6 +17,7 @@ namespace TicketApi.Data
         public DbSet<TicketComment> TicketComments { get; set; }
         public DbSet<TicketOverview> TicketOverview { get; set; }
         public DbSet<AppUser> Users { get; set; }
+        public DbSet<TicketMatch> TicketMatches { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -62,6 +63,15 @@ namespace TicketApi.Data
                 user.Property(u => u.UserId).UseIdentityAlwaysColumn();
                 // Set by the database; EF leaves it out of the INSERT and reads it back.
                 user.Property(u => u.Created).HasDefaultValueSql("now()");
+            });
+
+            // The rows of a search result. No table or view: they only ever come from
+            // the SQL in TicketSearchService. Registered here so that EF can turn the
+            // columns of that query into objects (ticket_id -> TicketId and so on).
+            modelBuilder.Entity<TicketMatch>(match =>
+            {
+                match.HasNoKey();
+                match.Property(m => m.Status).HasConversion<string>();
             });
         }
     }

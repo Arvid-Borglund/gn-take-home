@@ -11,10 +11,12 @@ namespace TicketApi.Services
     public class TicketService
     {
         private readonly TicketDbContext _db;
+        private readonly TicketSearchService _search;
 
-        public TicketService(TicketDbContext db)
+        public TicketService(TicketDbContext db, TicketSearchService search)
         {
             _db = db;
+            _search = search;
         }
 
         public async Task<TicketResponse> CreateAsync(CreateTicketRequest request)
@@ -27,6 +29,10 @@ namespace TicketApi.Services
 
             _db.Tickets.Add(ticket);
             await _db.SaveChangesAsync(); // the trigger records version 1
+
+            // The search finds tickets by an embedding of their text. The ticket is
+            // saved at this point, with or without one.
+            await _search.EmbedTicketAsync(ticket);
 
             return await GetOverviewAsync(ticket.TicketId);
         }
@@ -82,6 +88,9 @@ namespace TicketApi.Services
                 throw new TicketNotFoundException(ticketId);
             }
 
+            string titleBefore = ticket.Title;
+            string descriptionBefore = ticket.Description;
+
             if (request.Title != null)
             {
                 ticket.Title = Require(request.Title, "title");
@@ -109,6 +118,13 @@ namespace TicketApi.Services
             }
 
             await _db.SaveChangesAsync(); // the trigger records the next version, if anything changed
+
+            // The embedding is made from the title and the description. A new status or
+            // resolution does not change it.
+            if (ticket.Title != titleBefore || ticket.Description != descriptionBefore)
+            {
+                await _search.EmbedTicketAsync(ticket);
+            }
 
             return await GetOverviewAsync(ticketId);
         }
