@@ -6,7 +6,7 @@ would run on Azure.
 
 | Part | What | Where |
 |---|---|---|
-| 1 | Ticketing API: ASP.NET Core and EF Core on PostgreSQL | `api/`, `db/`, [Part 1 in the wiki](https://github.com/Arvid-Borglund/gn-take-home/wiki/Part-1-The-ticketing-API) |
+| 1 | Ticketing API: ASP.NET Core and EF Core on PostgreSQL, with a search by meaning (pgvector) | `api/`, `db/`, `embedder/`, [Part 1 in the wiki](https://github.com/Arvid-Borglund/gn-take-home/wiki/Part-1-The-ticketing-API) |
 | 2 | GenAI agent: LangGraph in Python, with a web interface to talk to it | `agent/`, `web/`, [Part 2](https://github.com/Arvid-Borglund/gn-take-home/wiki/Part-2-The-agent) and [The web interface](https://github.com/Arvid-Borglund/gn-take-home/wiki/The-web-interface) in the wiki |
 | 2, bonus | MCP server for the ticketing API. The agent gets its tools from it. | `agent/mcp_server.py`, `agent/mcp_client.py`, [The MCP server](https://github.com/Arvid-Borglund/gn-take-home/wiki/The-MCP-server) in the wiki |
 | 3 | PR review bot: a Python script run by GitHub Actions | `pr_review/`, `.github/workflows/pr-review.yml`, [Part 3 in the wiki](https://github.com/Arvid-Borglund/gn-take-home/wiki/Part-3-The-PR-review-bot) |
@@ -28,8 +28,8 @@ model's error, and the rest (the API, the ticket viewer and the history) keeps w
 ## Run it
 
 You need Docker with Compose, and the Azure OpenAI key from the assignment. Nothing else
-has to be installed: the database, the API, the agent and the web interface each run in
-their own container.
+has to be installed: the database, the embedding service, the API, the agent and the web
+interface each run in their own container.
 
 1. Clone the repository and go into it.
 
@@ -158,8 +158,8 @@ itself to remind people of a ticket that has stopped moving.
 
 The [wiki](https://github.com/Arvid-Borglund/gn-take-home/wiki) holds how each part is built and why.
 
-- [Part 1: the ticketing API](https://github.com/Arvid-Borglund/gn-take-home/wiki/Part-1-The-ticketing-API): the endpoints, the business rules, the error bodies, and the database with its history.
-- [Part 2: the agent](https://github.com/Arvid-Borglund/gn-take-home/wiki/Part-2-The-agent): the graph, the tools, the error handling, the search by meaning, the confirmation before a delete, the memory and the model.
+- [Part 1: the ticketing API](https://github.com/Arvid-Borglund/gn-take-home/wiki/Part-1-The-ticketing-API): the endpoints, the business rules, the error bodies, the database with its history, and the search by meaning.
+- [Part 2: the agent](https://github.com/Arvid-Borglund/gn-take-home/wiki/Part-2-The-agent): the graph, the tools, the error handling, the confirmation before a delete, the memory and the model.
 - [The MCP server](https://github.com/Arvid-Borglund/gn-take-home/wiki/The-MCP-server): the bonus of part 2. The server, its tools and handlers, and the agent as MCP client.
 - [The web interface](https://github.com/Arvid-Borglund/gn-take-home/wiki/The-web-interface): what is in it, how it is built, and the login.
 - [Part 3: the PR review bot](https://github.com/Arvid-Borglund/gn-take-home/wiki/Part-3-The-PR-review-bot): what the workflow does, and how to run it in your own copy of the repository.
