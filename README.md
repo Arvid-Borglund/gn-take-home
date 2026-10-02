@@ -439,11 +439,14 @@ actually deployed on. It is described under [The server as code](#the-server-as-
 ## Part 5: what I would change in production
 
 **The design decision: the login.** The web interface has a user system of its own: a
-table of users with a salted hash each, and basic auth in front of everything. That
-fits one user and a demo. In production I would not have a user system of my own at
-all. The people who would use this already have an account with their employer, and the
-application should accept that account: single sign-on through the identity provider
-the organisation already runs. For an organisation on Azure that is Microsoft Entra ID.
+table of users with a salted hash each, and basic auth in front of everything. It could
+hold many users, but it is built as a standalone application with accounts of its own.
+A tool like this is normally one of many that a company gives its employees, and it
+should not need a separate account. In production I would not have a user system of my
+own at all. The people who would use this already have an account with their employer,
+and the application should accept that account: single sign-on through the identity
+provider the organisation already runs. For an organisation on Azure that is Microsoft
+Entra ID.
 
 What that changes:
 
