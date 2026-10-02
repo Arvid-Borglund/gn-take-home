@@ -13,7 +13,7 @@ import { Conversation } from '../../models/chat.model';
     <div class="heading">History</div>
     <div *ngIf="conversations.length === 0" class="empty">No conversations yet.</div>
 
-    <div *ngFor="let conversation of conversations" class="conv"
+    <div *ngFor="let conversation of conversations; trackBy: conversationId" class="conv"
          [class.active]="conversation.id === currentId" (click)="selected.emit(conversation)">
       <span class="conv-title">{{ conversation.title || 'New conversation' }}</span>
       <span class="conv-meta">
@@ -47,6 +47,13 @@ export class ConversationListComponent {
   @Output() selected = new EventEmitter<Conversation>();
   @Output() created = new EventEmitter<void>();
   @Output() removed = new EventEmitter<Conversation>();
+
+  /** Tells Angular which row is which when the list is read again: the same
+   *  conversation keeps its row instead of getting a new one, so a row under the mouse
+   *  does not flicker. */
+  conversationId(index: number, conversation: Conversation): number {
+    return conversation.id;
+  }
 
   remove(conversation: Conversation, event: Event): void {
     // Without this the click would also select the conversation it removes.

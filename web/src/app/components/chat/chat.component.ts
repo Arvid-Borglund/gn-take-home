@@ -13,6 +13,9 @@ import { splitIntoParts } from './ticket-links';
 /** How often a conversation is read again while a turn is running in it. */
 const POLL_INTERVAL_MS = 2000;
 
+/** How often the history is read again while it shows a conversation as working. */
+const LIST_POLL_INTERVAL_MS = 3000;
+
 /**
  * The chat: the conversation list to the left, the thread and the input to the right.
  *
@@ -118,6 +121,10 @@ export class ChatComponent implements OnInit, AfterViewChecked, OnDestroy {
   private watching = false;
   private pollTimer?: ReturnType<typeof setTimeout>;
 
+  /** Set while the history shows a conversation as working (see
+   *  followWorkingConversations()). */
+  private listTimer?: ReturnType<typeof setTimeout>;
+
   constructor(private chat: ChatService, private ticketOpen: TicketOpenService) {}
 
   ngOnInit(): void {
@@ -149,9 +156,33 @@ export class ChatComponent implements OnInit, AfterViewChecked, OnDestroy {
             }
           }
         }
+        this.followWorkingConversations(list);
       },
       error: () => (this.conversations = [])
     });
+  }
+
+  /**
+   * While the history marks a conversation as working, the list is read again every
+   * few seconds. Otherwise the mark would stay after the turn is over, for a
+   * conversation that is not open on this page: nothing else would read the list.
+   */
+  private followWorkingConversations(list: Conversation[]): void {
+    if (this.listTimer !== undefined) {
+      clearTimeout(this.listTimer);
+      this.listTimer = undefined;
+    }
+
+    let anyWorking = false;
+    for (const conversation of list) {
+      if (conversation.running) {
+        anyWorking = true;
+      }
+    }
+
+    if (anyWorking) {
+      this.listTimer = setTimeout(() => this.refreshConversations(), LIST_POLL_INTERVAL_MS);
+    }
   }
 
   refreshScenarios(): void {
@@ -431,5 +462,8 @@ export class ChatComponent implements OnInit, AfterViewChecked, OnDestroy {
 
   ngOnDestroy(): void {
     this.cancelStream();
+    if (this.listTimer !== undefined) {
+      clearTimeout(this.listTimer);
+    }
   }
 }

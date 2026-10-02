@@ -85,7 +85,12 @@ export class ChatService {
       const controller = new AbortController();
 
       const read = async () => {
-        const response = await fetch(url, {
+        // The address is written out in full, starting from the page's origin. If the
+        // page was opened with the login in its address (https://user:password@host/),
+        // fetch refuses a relative address, because it would inherit the login from the
+        // page's address. The origin never has the login in it, and the browser sends
+        // the login along anyway, as it does for every request to the site.
+        const response = await fetch(window.location.origin + url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
           body: JSON.stringify(body),
