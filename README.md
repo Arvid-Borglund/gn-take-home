@@ -465,21 +465,38 @@ the load, in a cloud or on the organisation's own hardware. One thing in the cod
 to change first: the agent server keeps the task of a running turn in its own memory,
 and with several instances that has to live outside the process.
 
-**Beyond the assignment: an agent that follows the ticket.** The agent here does what it
-is asked, one request at a time, and knows a ticket only by its fields. In real support
-work most of what matters about a ticket is not in its fields. Someone called the
-supplier and spoke to the factory manager, who promised to talk to three people, who
-goes on holiday in two weeks, and whose deputy takes over after that. A person with a
-few hundred tickets does not remember that three weeks later.
+### Beyond the assignment: agents that follow a ticket from start to finish
 
-I would give every ticket an agent that builds up a memory of what has happened to it:
-who was contacted, what was promised and by when, and who to turn to next. Then anyone
-who is allowed to work on the ticket can start that agent and have the whole background
-at once. The agent can also speak up by itself when a ticket has been open too long,
-with a brief of what has been done, who should be contacted now, and how to reach them.
-The same kind of agent could sit where tickets come from, propose a ticket, and create
-it when the person responsible says yes. After that it can follow the work as an
-observer, or take part in it.
+This is outside what the assignment asks for, and it is how I imagine it, not something
+I have built. The agent here carries out one request at a time. I would make the whole
+handling of a ticket more agentic than that.
+
+**Where a ticket comes from.** A ticket starts somewhere: in a meeting, in a call with a
+customer, in a report about something that went wrong. I would have an agent present
+there as an observer. When it sees something that should become a ticket, it proposes
+one, and when the person responsible for tickets says yes, the ticket is created.
+
+**While the ticket is being solved.** The agent stays with the ticket. It can sit along
+as an observer while the person responsible works on it, or take a more active part and
+solve it together with that person. Either way it builds up a memory of the ticket:
+every turn the work takes, who was contacted, what was said and what was promised.
+
+An example of what I have in mind. The ticket is about a fault in the supply chain. The
+person responsible calls the supplier, a factory abroad, and speaks to the factory
+manager. The manager is told about the problem and says that he will talk to three
+people at the factory about it. He also says that he goes on holiday on the Friday two
+weeks from now, that it should be solved before then, and that contact during his
+holiday goes through his second in command.
+
+A person who handles hundreds of tickets over several months does not have all of that
+in their head three weeks later. The agent does. When the ticket is flagged as still
+unresolved, the agent tells the person responsible and gives a full brief: what has been
+done on the ticket so far, who should be contacted now, and how to reach them.
+
+**What it comes down to.** Every ticket has an agent of its own, with a memory of that
+ticket and of the turns it has taken. Anyone who is allowed to work on the ticket can
+start that agent and have the full background at once. And the agent can reach out by
+itself to remind people of a ticket that has stopped moving.
 
 ## Tests and CI
 
