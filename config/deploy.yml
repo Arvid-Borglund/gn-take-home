@@ -15,7 +15,7 @@ image: arvid-borglund/gn-take-home/api
 
 # The API is not behind kamal-proxy and has no address of its own. The web container
 # (config/deploy.web.yml) is the only way in from outside: its nginx asks for the
-# password and passes the API paths on to this container by its network alias.
+# login and passes the API paths on to this container by its network alias.
 servers:
   web:
     hosts:
@@ -44,11 +44,16 @@ env:
   secret:
     # ASP.NET reads this as ConnectionStrings:TicketDb. Put together in .kamal/secrets.
     - ConnectionStrings__TicketDb
+    # The first user of the web interface. The API creates it when it starts, unless
+    # it already exists, and stores a salt and a hash of the password.
+    - SeedUser__Username
+    - SeedUser__Password
 
 # PostgreSQL runs next to the API as its own container. No port is published: the API
 # reaches it by name over Docker's network, and nothing outside the server can.
-# The schema file is mounted where the postgres image runs it on an empty data
-# directory, the same file the local database image is built from.
+# The container starts with an empty database. The schema comes from the deploy
+# workflow, which runs the files in db/init/ on every deploy; they are the same files
+# the local database image is built from.
 accessories:
   postgres:
     service: ticketing-postgres
@@ -62,7 +67,5 @@ accessories:
         POSTGRES_DB: ticketdb
       secret:
         - POSTGRES_PASSWORD
-    files:
-      - db/init/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql
     directories:
       - data:/var/lib/postgresql/data

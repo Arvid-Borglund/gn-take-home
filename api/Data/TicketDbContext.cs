@@ -3,7 +3,7 @@ using TicketApi.Models;
 
 namespace TicketApi.Data
 {
-    // Maps the entities onto the hand-written schema in db/init/001_schema.sql.
+    // Maps the entities onto the hand-written schema in db/init/.
     // Column names follow from the snake_case naming convention registered in
     // Program.cs (TicketId -> ticket_id, TimeOfVersion -> time_of_version).
     public class TicketDbContext : DbContext
@@ -16,6 +16,7 @@ namespace TicketApi.Data
         public DbSet<TicketVersion> TicketVersions { get; set; }
         public DbSet<TicketComment> TicketComments { get; set; }
         public DbSet<TicketOverview> TicketOverview { get; set; }
+        public DbSet<AppUser> Users { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -52,6 +53,15 @@ namespace TicketApi.Data
                 overview.HasNoKey();
                 overview.ToView("ticket_overview");
                 overview.Property(o => o.Status).HasConversion<string>();
+            });
+
+            modelBuilder.Entity<AppUser>(user =>
+            {
+                user.ToTable("app_user");
+                user.HasKey(u => u.UserId);
+                user.Property(u => u.UserId).UseIdentityAlwaysColumn();
+                // Set by the database; EF leaves it out of the INSERT and reads it back.
+                user.Property(u => u.Created).HasDefaultValueSql("now()");
             });
         }
     }

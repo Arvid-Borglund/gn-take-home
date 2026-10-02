@@ -19,7 +19,9 @@ interface to the agent (`web/`), next to the command line the assignment asks fo
 has its own section below.
 
 The whole system runs at https://lundona.com, behind a login. The user name and the
-password came with the link to this repository.
+password came with the link to this repository. The agent there calls the model with
+the key from the assignment: when that key is closed the chat answers with the model's
+error, and the rest (the API, the ticket viewer and the history) keeps working.
 
 ## Run it
 
@@ -376,6 +378,46 @@ How it is built:
 - `web/` is an Angular app. Its image builds it with Node and serves the result with
   nginx; Node is not in the final image.
 
+### The login
+
+Locally the web interface is open. The deployed one is behind a login, and so is
+everything else on that address: the chat, the API and its Swagger page.
+
+```
+browser -> nginx: is this request logged in? -> GET /auth/check on the API -> app_user in PostgreSQL
+```
+
+- **The users are in the database, and a password is never stored.** A row in
+  `app_user` (`db/init/002_users.sql`) holds a random salt, made when the user is
+  created, and the PBKDF2 hash of the salt and the password
+  (`api/Services/PasswordHasher.cs`: HMAC-SHA512, 100 000 rounds, the settings ASP.NET
+  Core Identity uses). The salt gives two users with the same password different
+  hashes and makes ready-made tables of hashed passwords useless. The rounds make
+  every guess slow for someone who has got hold of the table.
+- **The browser logs in with basic auth.** It sends the user name and the password
+  with every request, which is why the site is only served over HTTPS. nginx does not
+  know the users: before it serves anything it passes the headers of the request to
+  `GET /auth/check` on the API (`auth_request` in `web/nginx/private/on.conf`). The API
+  hashes the given password with the user's salt and compares the result with the
+  stored hash, in a way that takes the same time wherever the two differ. 200 lets
+  the request through, 401 makes the browser ask for a login.
+- **The API creates the first user when it starts**, from two settings
+  (`SeedUser__Username` and `SeedUser__Password`), unless that user already exists. On
+  the server the two come from GitHub secrets, like the other secrets of the deploy.
+  The database, and so every backup of it, holds the salt and the hash only.
+- **nginx tells the agent server who is logged in**, in the header `X-User`. The value
+  comes from the API's answer to the check, and a header with that name sent by the
+  browser is dropped. It is what makes a conversation belong to its user.
+- **Every request pays for one hash**, about a tenth of a second on the server,
+  because basic auth has no session: the password comes with every request and is
+  checked every time. A session after one login would take that cost away and bring
+  session handling with it. With a handful of users, the simple way was the better
+  trade.
+
+To see it locally, put `SITE_PRIVATE=on` in `.env` and start the web interface again.
+The login is `demo` / `demo`, a local default like the database password in
+`compose.yaml`.
+
 ## Part 3: the PR review bot
 
 `.github/workflows/pr-review.yml` runs on every pull request that is opened or gets new
@@ -427,7 +469,8 @@ actually deployed on. It is described under [The server as code](#the-server-as-
 `tests/test_api.py` tests the API from the outside, over HTTP, against the running
 containers. The tests check the status codes and the exact `detail` message of every
 business-rule error, because those messages are what the agent builds its answers on.
-Each test creates the ticket it needs and removes it afterwards.
+Each test creates the ticket it needs and removes it afterwards. The login check is
+tested the same way: no login, the right one, a wrong password and an unknown user.
 
 `.github/workflows/ci.yml` runs on every pull request and on every push to main:
 
@@ -504,19 +547,23 @@ internet -> kamal-proxy (TLS) -> web: nginx, asks for the login -+- the Angular 
   server have no address of their own: nginx passes requests on to them over Docker's
   network.
 - **Everything is behind one login.** nginx asks for a user name and a password (basic
-  auth) on the app, the chat, the API and its Swagger page. Behind the chat is a
+  auth) on the app, the chat, the API and its Swagger page, and the API checks them
+  against the users in the database ([The login](#the-login)). Behind the chat is a
   language model that costs money per message, so it is not left open. Two paths need
   no login: `/up`, which the proxy's health check uses, and `/health`, which says
-  whether the API reaches its database. The web container refuses to start when it is
-  told to protect the site and has no logins, and the deploy fails if the front page
-  answers anything but 401 without one.
+  whether the API reaches its database. The deploy fails if the front page answers
+  anything but 401 without a login, and if the login from the secrets is not accepted
+  afterwards.
 - The server pulls the images of the chosen commit. Nothing is built.
 - For the web interface, Kamal starts the new container next to the old one, and the
   proxy sends traffic to the new one only when its health check answers 200. Then the
   old one is stopped.
-- PostgreSQL runs as its own container on the same server. No port is published: only
-  the API reaches it, over Docker's network. The schema is the same
-  `db/init/001_schema.sql` as locally.
+- PostgreSQL runs as its own container on the same server. No port is published: it is
+  only reached over Docker's network.
+- **The schema is the files in `db/init/`, the same as locally.** Every statement in
+  them only creates what is missing, and the deploy runs all of them on every deploy.
+  That is how a new table reaches a database that already has data in it. It covers
+  additions; changing a column that exists would take a migration tool.
 - Rolling back is deploying an older commit SHA.
 
 What has to exist before the first deploy:
@@ -524,15 +571,15 @@ What has to exist before the first deploy:
 - the secret `SSH_PRIVATE_KEY`: a key pair made for the pipeline, with the public half
   in the server's `authorized_keys`,
 - a GitHub environment named `production`, open to runs from main only, with the
-  secrets `POSTGRES_PASSWORD` and `BASIC_AUTH_HTPASSWD`. The second one holds the
-  logins to the web interface as htpasswd lines; `web/nginx/40-htpasswd.sh` says how to
-  make one,
+  secrets `POSTGRES_PASSWORD`, `WEB_LOGIN_USER` and `WEB_LOGIN_PASSWORD`. The last two
+  are the login to the web interface: the API creates that user when it starts,
 - the secret `AZURE_OPENAI_API_KEY`, the same one the PR review bot uses,
 - the server's host key in `.github/known_hosts`,
 - DNS for the host names in `config/deploy.web.yml`, pointing at the server.
 
-`scripts/setup-deploy-access.sh` does the first two. The first run is started with
-`bootstrap` ticked: it installs Docker on the server and starts the database.
+`scripts/setup-deploy-access.sh` does the first two, except for the login. The first
+run is started with `bootstrap` ticked: it installs Docker on the server and starts the
+database.
 
 ### The server as code
 

@@ -15,13 +15,10 @@ FROM nginx:alpine
 COPY --from=build /app/dist/web/browser/ /usr/share/nginx/html
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY nginx/private/ /etc/nginx/private/
-COPY nginx/40-htpasswd.sh /docker-entrypoint.d/40-htpasswd.sh
-# The entrypoint silently skips a script that is not executable, and the executable bit
-# does not always survive a checkout on Windows.
-RUN chmod 755 /docker-entrypoint.d/40-htpasswd.sh
 
-# Open by default, so that a local run does not ask for a password. The deployed
-# container sets SITE_PRIVATE=on and BASIC_AUTH_HTPASSWD (config/deploy.web.yml).
+# Open by default, so that a local run does not ask for a login. The deployed
+# container sets SITE_PRIVATE=on (config/deploy.web.yml), and nginx then asks the
+# ticket API whether the login in a request is valid.
 ENV SITE_PRIVATE=off
 
 # Where the ticket API and the agent server are. The defaults are the service names in
