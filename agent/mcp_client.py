@@ -1,8 +1,8 @@
 """The agent's side of MCP: starts the MCP server and makes its tools usable in the graph.
 
 The agent does not call the ticket API itself. It starts mcp_server.py as a subprocess
-and reaches the API through it (the CLI in main.py and the web server in server.py both
-do; --direct turns it off):
+and reaches the API through it (the web server in server.py and the evals both do;
+--direct turns it off):
 
     agent  --MCP over stdio-->  mcp_server.py  --HTTP-->  ticket API
 
@@ -155,6 +155,13 @@ class McpConnection:
             tools.append(tool)
 
         return tools
+
+    def describe(self, tools: list) -> str:
+        """One line that says where the tools come from. Printed when the server starts."""
+        names = []
+        for tool in tools:
+            names.append(tool.name)
+        return f"(MCP server '{self.server_name}' offers {len(tools)} tools: " + ", ".join(names) + ")"
 
     async def call_tool(self, tool_name: str, arguments: dict):
         """Sends one tool call to the server and returns the MCP result."""

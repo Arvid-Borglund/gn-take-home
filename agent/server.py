@@ -1,11 +1,12 @@
-"""HTTP server for the ticket agent: the same graph as the CLI, behind /api/chat.
+"""HTTP server for the ticket agent: the graph behind /api/chat. This is the program the
+agent container runs.
 
     python server.py            starts the server on port 8000
     python server.py --direct   the same, with the agent's own tools (tools.py) instead
                                 of the MCP server's
 
-As in the CLI, the tools come from the MCP server (mcp_server.py). It is started once,
-as a subprocess, when this server starts, and it lives as long as this server does.
+The tools come from the MCP server (mcp_server.py). It is started once, as a
+subprocess, when this server starts, and it lives as long as this server does.
 
 The web interface (web/) talks to this server. A message goes in with a POST, and the
 answer comes back as a stream of server-sent events, one per thing that happens in the
@@ -41,12 +42,13 @@ from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from api_client import TicketApiClient
+from api_client import TicketApiClient, wait_for_api
 from config import ConfigError, Settings, load_settings
 from conversations import Conversations, build_checkpointer, open_database
-from graph import TicketAgent
-from main import MAX_GRAPH_STEPS, SCENARIOS, build_llm, describe_mcp_tools, fill_in_ids, wait_for_api
+from graph import MAX_GRAPH_STEPS, TicketAgent
 from mcp_client import McpConnection
+from model import build_llm
+from scenarios import list_scenarios
 from tools import build_tools
 from transcript import Reply, build_chat_messages, reply_in_progress
 
@@ -147,14 +149,8 @@ class ChatServer:
         }
 
     def scenarios(self) -> list:
-        """The requests from the assignment, with real ticket ids filled in. A scenario
-        that needs a ticket is left out while there are no tickets."""
-        texts = []
-        for scenario in SCENARIOS:
-            text = fill_in_ids(scenario, self._client)
-            if text is not None:
-                texts.append(text)
-        return texts
+        """The example requests the web interface offers (scenarios.py)."""
+        return list_scenarios(self._client)
 
     # The rest take x_user: FastAPI fills it in from the request header X-User.
     # A user only ever gets their own conversations (_find, and list_for).
@@ -275,8 +271,7 @@ class ChatServer:
 
     async def _run_turn(self, conversation_id: int, graph_input, reply: Reply, events: asyncio.Queue) -> None:
         """Runs the graph for one turn and puts what happens in the queue, as
-        server-sent events. This is the same loop as run_turn in main.py, with "put in
-        the queue" where the CLI prints."""
+        server-sent events."""
         try:
             await self._run_graph(conversation_id, graph_input, reply, events)
             await self._conversations.mark_used(conversation_id)
@@ -317,8 +312,7 @@ class ChatServer:
             traceback.print_exc()
             events.put_nowait(sse("error", {"message": message}))
             # The history may now end in a half-finished exchange, so the conversation
-            # takes no more messages. The CLI does the same thing: it starts a new
-            # conversation after a failed turn.
+            # takes no more messages. The user starts a new one.
             await self._conversations.mark_failed(conversation_id)
 
     async def _read_events(self, events: asyncio.Queue):
@@ -397,7 +391,7 @@ async def serve(llm, tools: list, client: TicketApiClient, settings: Settings, t
 
 async def run(settings: Settings, client: TicketApiClient, use_direct_tools: bool) -> None:
     """Gets the tools, from the MCP server or the direct ones, and runs the server.
-    The same choice as run() in main.py."""
+    The graph is the same in both cases: it only sees a list of tools."""
     llm = build_llm(settings)
 
     if use_direct_tools:
@@ -414,7 +408,7 @@ async def run(settings: Settings, client: TicketApiClient, use_direct_tools: boo
     await connection.start()
     try:
         tools = await connection.load_tools()
-        print(describe_mcp_tools(connection, tools))
+        print(connection.describe(tools))
         await serve(llm, tools, client, settings, "mcp")
     finally:
         await connection.stop()

@@ -1,22 +1,25 @@
 # Ticketing API, GenAI agent, PR review bot and infrastructure
 
-A support ticketing API with a database, an LLM agent that operates it from the command
-line, a GitHub Action that reviews pull requests with the same LLM, and a Terraform
-description of how the API would run on Azure.
+A support ticketing API with a database, an LLM agent that operates it, a GitHub Action
+that reviews pull requests with the same LLM, and a Terraform description of how the API
+would run on Azure.
 
 | Part | What | Where |
 |---|---|---|
 | 1 | Ticketing API: ASP.NET Core and EF Core on PostgreSQL | `api/`, `db/` |
-| 2 | GenAI agent: LangGraph in Python, with a command-line interface | `agent/` |
+| 2 | GenAI agent: LangGraph in Python, with a web interface to talk to it | `agent/`, `web/` |
 | 2, bonus | MCP server for the ticketing API. The agent gets its tools from it. | `agent/mcp_server.py`, `agent/mcp_client.py` |
 | 3 | PR review bot: a Python script run by GitHub Actions | `pr_review/`, `.github/workflows/pr-review.yml` |
 | 4 | Terraform skeleton for Azure | `infra/` |
 
 Around the four parts there is what it takes to run the system for real: tests of the
 API, evals of the agent, a CI workflow, a deploy to a server with Kamal, Terraform for
-that server with remote state, and a nightly database backup. There is also a web
-interface to the agent (`web/`), next to the command line the assignment asks for. Each
-has its own section below.
+that server with remote state, and a nightly database backup. Each has its own section
+below.
+
+The assignment says that a command-line interface to the agent is sufficient. The
+interface here is a web application instead (`web/`): the steps the agent takes, the
+tickets and their history are easier to follow on a page than in a terminal.
 
 The whole system runs at https://lundona.com, behind a login. The user name and the
 password came with the link to this repository. The agent there calls the model with
@@ -26,7 +29,8 @@ error, and the rest (the API, the ticket viewer and the history) keeps working.
 ## Run it
 
 You need Docker with Compose, and the Azure OpenAI key from the assignment. Nothing else
-has to be installed: the database, the API and the agent each run in their own container.
+has to be installed: the database, the API, the agent and the web interface each run in
+their own container.
 
 1. Clone the repository and go into it.
 
@@ -45,38 +49,24 @@ has to be installed: the database, the API and the agent each run in their own c
    deployment and the API version are already filled in. (In the Windows command prompt
    the copy command is `copy .env.example .env`.)
 
-3. Start the database and the API.
+3. Start everything.
 
    ```bash
    docker compose up -d --build
    ```
 
-   The API is now at http://localhost:8080, with Swagger at http://localhost:8080/swagger.
-   The database starts empty.
+   The web interface is now at http://localhost:8081, and the API at
+   http://localhost:8080 with Swagger at http://localhost:8080/swagger. The database
+   starts empty. The first build takes a few minutes, because it installs the Angular
+   toolchain inside the web image.
 
-4. Run the agent.
+4. Talk to the agent at http://localhost:8081.
 
-   ```bash
-   docker compose run --rm agent
-   ```
-
-   Type a request in plain language, or a number from the menu to run one of the
-   scenarios from the assignment. To run all of them without typing anything:
-
-   ```bash
-   docker compose run --rm agent python main.py --demo
-   ```
-
-   [docs/demo.md](docs/demo.md) is the output of that command.
-
-   The agent reaches the API through its MCP server (see
-   [Bonus: the MCP server](#bonus-the-mcp-server)); the first line it prints lists the
-   tools the server offers. Add `--direct` to either command to run the same agent
-   without that step:
-
-   ```bash
-   docker compose run --rm agent python main.py --demo --direct
-   ```
+   Type a request in plain language, or pick one of the seven example requests: the six
+   from the assignment, and a delete that shows the confirmation step. They are listed
+   on an empty conversation, and behind the Scenarios button next to the input during
+   one. Above every answer are the tool calls the agent made and what the API returned.
+   See [The web interface](#the-web-interface).
 
 5. Run the API tests (optional).
 
@@ -84,24 +74,21 @@ has to be installed: the database, the API and the agent each run in their own c
    docker compose run --rm tests
    ```
 
-6. Start the web interface (optional).
+6. Run the evals (optional): 14 fixed questions through the agent, with fixed
+   expectations on what it does. See [Evals](#evals).
 
    ```bash
-   docker compose --profile web up -d --build
+   docker compose run --rm agent python evals/run.py
    ```
-
-   It is at http://localhost:8081. The first build takes a few minutes, because it
-   installs the Angular toolchain inside the image. See
-   [The web interface](#the-web-interface).
 
 To stop everything and remove the database volume:
 
 ```bash
-docker compose --profile web down -v
+docker compose down -v
 ```
 
-Ports 8080 and 5432 must be free, and 8081 for the web interface. If one of them is
-taken, set `API_PORT`, `DB_PORT` or `WEB_PORT` in `.env` (see `.env.example`).
+Ports 8080, 5432 and 8081 must be free. If one of them is taken, set `API_PORT`,
+`DB_PORT` or `WEB_PORT` in `.env` (see `.env.example`).
 
 ## Part 1: the ticketing API
 
@@ -182,35 +169,35 @@ the tool descriptions nor the prompt list the valid statuses. The agent sends wh
 user asked for and learns what is valid from the API's answer. If the API gets a new
 status, the agent does not have to change.
 
-```text
-you> Update ticket 1 to have the status 'PROGRESS'.
-  [tool call]   update_ticket(ticket_id=1, status='PROGRESS')
-  [tool result] API ERROR 422: 'PROGRESS' is not a valid status. Valid statuses are: OPEN, RESOLVED, CLOSED.
-agent> The API rejected PROGRESS; valid statuses are OPEN, RESOLVED, and CLOSED. Choose one of those to update ticket 1.
+Two of the requests from the assignment, with the steps the web interface shows above
+the answer:
 
-you> Update ticket 1001 to 'CLOSED'.
-  [tool call]   update_ticket(ticket_id=1001, status='CLOSED')
-  [tool result] API ERROR 404: Ticket 1001 does not exist.
-agent> Ticket 1001 does not exist, so it wasn’t updated. List tickets to find the correct ticket ID.
+```text
+Update ticket 1 to have the status 'PROGRESS'.
+  tool call    update_ticket(ticket_id=1, status='PROGRESS')
+  tool result  API ERROR 422: 'PROGRESS' is not a valid status. Valid statuses are: OPEN, RESOLVED, CLOSED.
+  answer       The API rejected PROGRESS; valid statuses are OPEN, RESOLVED, and CLOSED. Choose one of those to update ticket 1.
+
+Update ticket 1001 to 'CLOSED'.
+  tool call    update_ticket(ticket_id=1001, status='CLOSED')
+  tool result  API ERROR 404: Ticket 1001 does not exist.
+  answer       Ticket 1001 does not exist, so it wasn’t updated. List tickets to find the correct ticket ID.
 ```
 
 **Confirmation before a delete.** Deleting is permanent, so the graph does not run a
 delete on the model's word alone. When the model asks for `delete_ticket`, the `confirm`
-node stops the graph with `interrupt()` and the CLI asks the user. The graph continues
-with the answer; a delete that was not confirmed is not run, and the model is told so.
+node stops the graph with `interrupt()` and the web interface asks the user, with a
+Delete and a Keep it button. The graph continues with the answer; a delete that was not
+confirmed is not run, and the model is told so.
 
-**Memory.** The graph is compiled with a checkpointer: in memory for the command line,
-in PostgreSQL for the web interface. It keeps the conversation between turns ("now
-close that ticket" works), and it is what lets the graph stop at the confirmation and
-continue afterwards.
+**Memory.** The graph is compiled with a checkpointer, which keeps its state in
+PostgreSQL. It keeps the conversation between turns ("now close that ticket" works), and
+it is what lets the graph stop at the confirmation and continue afterwards.
 
 **The model.** This deployment rejects tool calls on the chat completions endpoint while
 reasoning is on, and the API version from the assignment is older than the Responses
 API. The agent therefore sets `reasoning_effort="none"` (see `build_llm` in
-`agent/main.py`).
-
-In the chat, `new` starts a new conversation, `menu` shows the scenarios again and
-`quit` exits.
+`agent/model.py`).
 
 ## Bonus: the MCP server
 
@@ -220,8 +207,7 @@ agent  --MCP over stdio-->  mcp_server.py  --HTTP-->  ticket API
 
 `agent/mcp_server.py` exposes the ticketing API as an MCP server, built with the official
 MCP Python SDK. The agent takes its tools from that server instead of calling the API
-itself. That goes for everything that runs the agent: the command line, the evals and
-the web interface.
+itself. That goes for everything that runs the agent: the web interface and the evals.
 
 The four steps of the task:
 
@@ -258,13 +244,12 @@ What the split between the agent and the server means:
 - **The server gets only what it needs.** A subprocess started over stdio does not
   inherit the agent's environment. The agent passes the address of the API on, and
   not the model key.
-- **The server lives as long as what started it.** The command line starts it for one
-  run. The web server (`agent/server.py`) starts it once and uses it for every
-  conversation.
+- **The server lives as long as what started it.** The web server (`agent/server.py`)
+  starts it once, when it starts itself, and uses it for every conversation. The evals
+  start one for a run.
 - **A dead server is started again.** If the MCP server process dies while the web
-  server runs, the web server stays up and the conversations, which live in its
-  memory, are kept. Before every tool call the connection (`McpConnection` in
-  `agent/mcp_client.py`) asks the server a question that changes nothing
+  server runs, the web server stays up. Before every tool call the connection
+  (`McpConnection` in `agent/mcp_client.py`) asks the server a question that changes nothing
   (`tools/list`; MCP no longer has a ping). If there is no answer, it starts the
   server again and then makes the call. A lock makes sure that two calls at the same
   time start one server, not two. The call itself is never repeated: if the server
@@ -273,16 +258,10 @@ What the split between the agent and the server means:
   back as an error, and the next one heals the connection.
 
 **The agent without the server.** `--direct` runs the same agent with tools of its own
-(`agent/tools.py`) that call the API without the MCP step:
-
-```bash
-docker compose run --rm agent python main.py --direct
-```
-
-[docs/demo-direct.md](docs/demo-direct.md) is the demo run that way. It is kept as a
-fallback, and as something to compare the MCP path with. That means the seven tools are
-written down twice, in `agent/mcp_server.py` and in `agent/tools.py`. Two checks keep
-the two the same:
+(`agent/tools.py`) that call the API without the MCP step. The web server and the evals
+both take the flag. It is kept as a fallback, and as something to compare the MCP path
+with. That means the seven tools are written down twice, in `agent/mcp_server.py` and in
+`agent/tools.py`. Two checks keep the two the same:
 
 ```bash
 docker compose run --rm agent python check_mcp.py
@@ -309,9 +288,8 @@ docker compose run --rm -T agent python mcp_server.py
 
 ## The web interface
 
-The assignment asks for a command line, and that is the main way in. The web interface
-is the same agent behind a second front: the graph, the tools and the prompt are not
-changed for it.
+The web interface is how the agent is used. The assignment says that a command-line
+interface is sufficient; this is what was built instead.
 
 ```
 browser -> nginx (web/) -+- /              the Angular app
@@ -323,7 +301,10 @@ What is in it:
 
 - **The chat** is the main area. Above every answer are the tool calls the agent made
   and what the API returned, so an error can be followed from the API's message to the
-  agent's answer. The requests from the assignment are one click each.
+  agent's answer.
+- **The example requests** are one click each: the six from the assignment and a
+  delete, with the ids of real tickets filled in. They are listed on an empty
+  conversation, and behind the Scenarios button next to the input during one.
 - **The history** to the left lists the conversations.
 - **Ticket numbers in an answer are links**, and the tickets an answer is about are
   listed under it. A click opens the ticket in a viewer next to the chat, one tab per
@@ -331,17 +312,16 @@ What is in it:
 - **Version history** in the viewer is a timeline: one section per version of the
   ticket, coloured by its status, with a pin for every comment at the time it was
   written. A click on a section shows the ticket as it was in that version.
-- **A delete** shows the agent's question with a Delete and a Keep it button. It is the
-  same stop in the graph as the `[y/N]` of the command line.
+- **A delete** shows the agent's question with a Delete and a Keep it button. Behind it
+  is the `confirm` node of the graph, stopped at `interrupt()`.
 
 How it is built:
 
 - `agent/server.py` puts the graph behind HTTP with FastAPI. A message is a POST, and
   the answer is a stream of server-sent events, one per thing that happens in the
   graph: a tool call, a tool result, the answer, or the question before a delete. The
-  loop that reads the graph is the one the command line has, with "send to the browser"
-  where the command line prints. The tools come from the MCP server here too: the
-  server starts it once, and `/api/chat/health` says `"tools": "mcp"`.
+  tools come from the MCP server: the web server starts it once, and
+  `/api/chat/health` says `"tools": "mcp"`.
 - **A turn runs to its end even if the browser hangs up.** The turn is a task of its
   own that runs the graph and puts every event in a queue; the HTTP response only reads
   from that queue. A closed tab or a reload stops the reader, not the turn. Otherwise
@@ -365,8 +345,8 @@ How it is built:
   to. Their messages are kept by the graph's checkpointer, which in the web server is
   LangGraph's PostgreSQL checkpointer; it creates its own tables when the server
   starts. A conversation is therefore still there after a restart of the container,
-  including a question before a delete that has not been answered yet. The command
-  line and the evals keep their state in memory, as before.
+  including a question before a delete that has not been answered yet. The evals keep
+  their state in memory.
 - **A conversation belongs to the user who started it.** nginx does the login and puts
   the login name in the header `X-User` on what it passes on to the agent server.
   Listing, reading, writing and deleting only see the user's own conversations; someone
@@ -476,8 +456,8 @@ tested the same way: no login, the right one, a wrong password and an unknown us
 
 | Job | What it does |
 |---|---|
-| API tests | Starts the database and the API with the same compose command as above, and runs the tests. |
-| Agent image | Builds the agent image, checks that the program and the server load, checks that the MCP server offers the same tools as the direct ones, checks that a killed MCP server is started again, and checks, against a real database, that a turn in the web server survives a reader that hangs up and that a conversation is kept for its user. It makes no model call; the evals below do that, in a workflow of their own. |
+| API tests | Starts the database and the API with compose and runs the tests. |
+| Agent image | Builds the agent image, checks that the server loads, checks that the MCP server offers the same tools as the direct ones, checks that a killed MCP server is started again, and checks, against a real database, that a turn in the web server survives a reader that hangs up and that a conversation is kept for its user. It makes no model call; the evals below do that, in a workflow of their own. |
 | Terraform validate | `terraform fmt -check`, `init` and `validate` on `infra/`. |
 | API image | Builds the API image. On main it is pushed to the GitHub container registry, tagged with the commit SHA. |
 | Agent and web images | Builds the agent image and the web image, which is also the check that the Angular app compiles. On main they are pushed like the API image. |
@@ -632,12 +612,11 @@ GitHub secrets, so a server that has been taken over cannot delete its own backu
 ```
 api/          the ticketing API (C#)
 db/           the database image and the schema
-agent/        the agent, its CLI, its web server and the MCP server (Python)
+agent/        the agent: the graph, its web server, the MCP server and the evals (Python)
 web/          the web interface (Angular, served by nginx)
 tests/        tests of the API over HTTP (Python)
 pr_review/    the PR review script (Python)
 infra/        Terraform for Azure (part 4), and in hetzner/ for the real server
-docs/         the demo transcripts
 config/       the Kamal deploy configuration
 .kamal/       the secrets Kamal expects (names only, no values)
 scripts/      one-time setup of the pipeline's access to the server
