@@ -12,7 +12,10 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ticket -d ticketdb"]
+      # -h 127.0.0.1: over the network, not the local socket. While the image sets up
+      # a new database it answers on the socket only, and the API, which creates a
+      # user when it starts, must not start until the database answers on the network.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ticket -d ticketdb"]
       interval: 2s
       timeout: 2s
       retries: 15
@@ -24,6 +27,11 @@ services:
         condition: service_healthy
     environment:
       ConnectionStrings__TicketDb: Host=db;Port=5432;Database=ticketdb;Username=ticket;Password=ticket
+      # The user the API creates when it starts, if it does not exist. demo/demo is a
+      # local default, like the database password above. It is only asked for when the
+      # web interface runs with SITE_PRIVATE=on.
+      SeedUser__Username: ${WEB_LOGIN_USER:-demo}
+      SeedUser__Password: ${WEB_LOGIN_PASSWORD:-demo}
     ports:
       - "${API_PORT:-8080}:8080"
 
@@ -70,10 +78,9 @@ services:
       - api
       - agent-server
     environment:
-      # Open locally. "on" asks for a password, and then BASIC_AUTH_HTPASSWD must be
-      # set too (see web/nginx/40-htpasswd.sh). The deployed site runs with "on".
+      # Open locally. "on" asks for a login, and the API checks it against the users
+      # in the database (demo/demo locally). The deployed site runs with "on".
       SITE_PRIVATE: ${SITE_PRIVATE:-off}
-      BASIC_AUTH_HTPASSWD: ${BASIC_AUTH_HTPASSWD:-}
     ports:
       - "${WEB_PORT:-8081}:80"
 
@@ -86,6 +93,9 @@ services:
       - api
     environment:
       TICKET_API_URL: http://api:8080
+      # The same login as the API creates above.
+      WEB_LOGIN_USER: ${WEB_LOGIN_USER:-demo}
+      WEB_LOGIN_PASSWORD: ${WEB_LOGIN_PASSWORD:-demo}
 
 volumes:
   pgdata:

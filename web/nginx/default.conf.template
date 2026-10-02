@@ -12,20 +12,34 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # "on" asks for a user name and a password on everything below, "off" asks for
-    # nothing. Off is the default in the Dockerfile, so a local run is open.
+    # "on" asks for a login on everything below, "off" asks for nothing. Off is the
+    # default in the Dockerfile, so a local run is open.
     include /etc/nginx/private/${SITE_PRIVATE}.conf;
 
     # Docker's own DNS. The short lifetime is on purpose: a deploy replaces the API
     # container, and the new one has a new address behind the same name.
     resolver 127.0.0.11 valid=5s ipv6=off;
 
-    # The deploy proxy's health check. No password here: with SITE_PRIVATE=on the check
+    # The deploy proxy's health check. No login here: with SITE_PRIVATE=on the check
     # would get 401, never pass, and the deploy would never switch over.
     location = /up {
-        auth_basic off;
+        auth_request off;
         access_log off;
         return 200 "ok";
+    }
+
+    # Where the login is checked when SITE_PRIVATE=on (auth_request in private/on.conf).
+    # The API gets the headers of the request, among them Authorization, and answers
+    # 200 or 401 (api/Controllers/AuthController.cs). "internal": nginx uses this
+    # location itself, a browser cannot ask for it.
+    location = /_auth {
+        internal;
+        set $api_upstream http://${API_HOST}:8080;
+        proxy_pass $api_upstream/auth/check;
+
+        # The check needs the headers only, not the body of the request.
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
     }
 
     # The Angular app. A path that is not a file gets index.html.
@@ -40,6 +54,11 @@ server {
     location /api/chat/ {
         set $agent_upstream http://${AGENT_HOST}:8000;
         proxy_pass $agent_upstream;
+
+        # Who is logged in, so that the agent server can keep each user's conversations
+        # apart. nginx sets the header itself, from the API's answer to the login
+        # check, and a header with that name sent by the browser is dropped.
+        proxy_set_header X-User $auth_user;
 
         # The answer is a stream of events. Pass each one on at once, and wait long
         # enough for a slow model call.
@@ -71,9 +90,9 @@ server {
     }
 
     # The API's health check: says whether the API reaches its database, nothing else.
-    # No password, so the deploy workflow can check the whole chain from outside.
+    # No login, so the deploy workflow can check the whole chain from outside.
     location = /health {
-        auth_basic off;
+        auth_request off;
         set $api_upstream http://${API_HOST}:8080;
         proxy_pass $api_upstream;
     }
