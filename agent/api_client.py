@@ -5,6 +5,7 @@ Every method returns an ApiResult instead of raising on a 4xx. A business-rule e
 message the API wrote, and decides what to do with it.
 """
 
+import time
 from typing import Optional
 
 import httpx
@@ -123,3 +124,16 @@ class TicketApiClient:
                 return title
 
         return f"The API answered {response.status_code} without an explanation."
+
+
+def wait_for_api(client: TicketApiClient) -> bool:
+    """True when the ticket API answers. Tries for about 15 seconds, because the API
+    container may still be starting when the agent container does."""
+    attempts = 0
+    while attempts < 15:
+        result = client.list_tickets(None)
+        if result.status_code != 0:
+            return True
+        attempts += 1
+        time.sleep(1)
+    return False

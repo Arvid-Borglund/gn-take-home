@@ -10,8 +10,8 @@
 - tools runs the tool calls and adds one ToolMessage per call. A delete that was not
   confirmed is not run; the model is told so instead.
 
-The graph is compiled with a checkpointer that keeps the state: in memory for the CLI,
-in the database for the web server. It does two jobs. It remembers the conversation
+The graph is compiled with a checkpointer that keeps the state: in the database for the
+web server, in memory for the evals. It does two jobs. It remembers the conversation
 between turns: the same thread_id means the same conversation. And it is what makes
 interrupt() possible: the state is saved when the graph stops, so the graph can continue
 from the same place when the answer comes.
@@ -27,6 +27,11 @@ from langgraph.types import interrupt
 
 from prompts import SYSTEM_PROMPT
 from tools import DELETE_TOOL_NAME
+
+# One step is one node run. A normal request takes three (agent, tools, agent). This is
+# the ceiling for a model that keeps calling tools without getting anywhere. Whoever
+# runs the graph passes it as recursion_limit.
+MAX_GRAPH_STEPS = 20
 
 
 class AgentState(TypedDict):
@@ -68,8 +73,9 @@ class TicketAgent:
                 ticket_ids.append(call["args"].get("ticket_id"))
 
         # interrupt() stops the graph here and hands the question to whoever is running
-        # it (the CLI). When the CLI continues the graph with an answer, this node runs
-        # again from the top, and this time interrupt() returns that answer.
+        # it (the web server, which passes it on to the browser). When the graph is
+        # continued with an answer, this node runs again from the top, and this time
+        # interrupt() returns that answer.
         question = {"action": DELETE_TOOL_NAME, "ticket_ids": ticket_ids}
         answer = interrupt(question)
 
@@ -124,8 +130,8 @@ class TicketAgent:
 
     def build(self, checkpointer=None):
         """Compiles the graph. Without a checkpointer the state is kept in memory,
-        which is what the CLI and the evals want. The web server passes one that keeps
-        the state in the database (conversations.py)."""
+        which is what the evals want. The web server passes one that keeps the state
+        in the database (conversations.py)."""
         if checkpointer is None:
             checkpointer = InMemorySaver()
 

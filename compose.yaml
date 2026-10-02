@@ -35,53 +35,34 @@ services:
     ports:
       - "${API_PORT:-8080}:8080"
 
-  # The agent is a command-line program, not a server, so "docker compose up" does not
-  # start it (the profile keeps it out). Run it with:  docker compose run --rm agent
+  # The agent: the graph behind an HTTP server (agent/server.py). It has no port of its
+  # own; the browser reaches it through web. The evals and the checks run in the same
+  # image:  docker compose run --rm agent python evals/run.py
   agent:
     build: ./agent
-    profiles: ["agent"]
-    depends_on:
-      - api
-    environment:
-      # Inside the compose network the API is reached by its service name.
-      TICKET_API_URL: http://api:8080
-      # The values come from the .env file next to this file (see .env.example).
-      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
-      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
-      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
-      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-}
-    stdin_open: true
-    tty: true
-
-  # The web interface, started on request:  docker compose --profile web up -d --build
-  #
-  # agent-server is the same image and the same graph as the agent above, started as an
-  # HTTP server instead of a command-line program. web is nginx with the built Angular
-  # app; it is the only one of the two that is reachable from outside.
-  agent-server:
-    build: ./agent
-    profiles: ["web"]
-    command: ["python", "server.py"]
     depends_on:
       db:
         condition: service_healthy
       api:
         condition: service_started
     environment:
+      # Inside the compose network the API is reached by its service name.
       TICKET_API_URL: http://api:8080
       # The conversations are stored in the same database as the tickets.
       DATABASE_URL: postgresql://ticket:ticket@db:5432/ticketdb
+      # The values come from the .env file next to this file (see .env.example).
       AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
       AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
       AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-}
 
+  # The web interface: nginx with the built Angular app. It is the only way to the
+  # agent from outside, and it passes the API paths on to the two services above.
   web:
     build: ./web
-    profiles: ["web"]
     depends_on:
       - api
-      - agent-server
+      - agent
     environment:
       # Open locally. "on" asks for a login, and the API checks it against the users
       # in the database (demo/demo locally). The deployed site runs with "on".
@@ -89,7 +70,8 @@ services:
     ports:
       - "${WEB_PORT:-8081}:80"
 
-  # Tests of the API over HTTP. Like the agent, they are run on request:
+  # Tests of the API over HTTP. They are run on request (the profile keeps them out of
+  # "docker compose up"):
   #   docker compose run --rm tests
   tests:
     build: ./tests

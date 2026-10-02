@@ -16,8 +16,40 @@ import json
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from main import format_call, shorten, text_of
 from tools import DELETE_TOOL_NAME
+
+# How much of a tool result the web interface shows. The model always gets the whole
+# result.
+MAX_SHOWN_RESULT_LENGTH = 300
+
+
+def text_of(message) -> str:
+    content = message.content
+    if isinstance(content, str):
+        return content
+
+    # Some models return a list of content blocks instead of one string.
+    parts = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "text":
+            parts.append(block.get("text", ""))
+    return "".join(parts)
+
+
+def format_call(call: dict) -> str:
+    """A tool call as it would look in code: update_ticket(ticket_id=3, status='CLOSED')"""
+    arguments = []
+    for key in call["args"]:
+        value = call["args"][key]
+        arguments.append(f"{key}={value!r}")
+    return call["name"] + "(" + ", ".join(arguments) + ")"
+
+
+def shorten(text: str) -> str:
+    text = text.replace("\n", " ")
+    if len(text) > MAX_SHOWN_RESULT_LENGTH:
+        return text[:MAX_SHOWN_RESULT_LENGTH] + " ..."
+    return text
 
 
 def is_error_result(text: str) -> bool:

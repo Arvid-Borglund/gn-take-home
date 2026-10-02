@@ -24,7 +24,7 @@ ENV SITE_PRIVATE=off
 # Where the ticket API and the agent server are. The defaults are the service names in
 # compose.yaml; the deployed container gets the names the other containers have there.
 ENV API_HOST=api
-ENV AGENT_HOST=agent-server
+ENV AGENT_HOST=agent
 
 # Only these variables are replaced in the template. Without the filter, nginx's own
 # $variables would be replaced too, with nothing.

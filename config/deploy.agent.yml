@@ -3,8 +3,8 @@
 # Used by .github/workflows/deploy.yml:
 #   kamal deploy -c config/deploy.agent.yml --skip-push --version <commit sha>
 #
-# The same image as the command-line agent, started as a server. It is not behind
-# kamal-proxy and has no address of its own: the web container's nginx passes
+# It is not behind kamal-proxy and has no address of its own: the web container's nginx
+# passes
 # /api/chat/ on to it by its network alias. The chat is therefore only reachable
 # through the web interface's login. That matters here, because every message costs a
 # call to the language model with the key below.
@@ -17,8 +17,6 @@ servers:
   web:
     hosts:
       - 135.181.92.165
-    # The image starts the command-line program by default. Here it runs the server.
-    cmd: python server.py
     options:
       network-alias: ticketing-agent
       memory: 384m

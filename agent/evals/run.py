@@ -29,12 +29,13 @@ sys.path.insert(0, AGENT_DIRECTORY)
 from langchain_core.messages import AIMessage, HumanMessage  # noqa: E402
 from langgraph.types import Command  # noqa: E402
 
-from api_client import TicketApiClient  # noqa: E402
+from api_client import TicketApiClient, wait_for_api  # noqa: E402
 from config import ConfigError, load_settings  # noqa: E402
-from graph import TicketAgent  # noqa: E402
-from main import MAX_GRAPH_STEPS, build_llm, text_of, wait_for_api  # noqa: E402
+from graph import MAX_GRAPH_STEPS, TicketAgent  # noqa: E402
 from mcp_client import McpConnection  # noqa: E402
+from model import build_llm  # noqa: E402
 from tools import build_tools  # noqa: E402
+from transcript import text_of  # noqa: E402
 
 CASES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.yaml")
 
@@ -349,7 +350,7 @@ async def run_suite(arguments) -> int:
         tools = build_tools(client)
         return await run_cases(cases, llm, tools, client, arguments, settings)
 
-    # The tools come from the MCP server, as when the agent runs normally.
+    # The tools come from the MCP server, as in the web server.
     connection = McpConnection(settings.ticket_api_url)
     await connection.start()
     try:

@@ -1,7 +1,7 @@
 # Runs on every pull request and on every push to main.
 #
 #   api        starts the database and the API with compose and runs the API tests
-#   agent      builds the agent image and checks that the program loads
+#   agent      builds the agent image and runs the checks that need no language model
 #   terraform  checks the formatting of infra/ and validates both configurations in it
 #   image      builds the API image; on main it is also pushed to GHCR
 #   web-images builds the agent image and the web image; on main they are pushed too
@@ -32,9 +32,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The same command as in the README: the database and the API as containers.
+      # Only the two the tests need. Without the names, compose would also build and
+      # start the agent and the web interface.
       - name: Start the database and the API
-        run: docker compose up -d --build
+        run: docker compose up -d --build db api
 
       - name: Run the tests
         run: docker compose run --rm tests
@@ -56,10 +57,6 @@ jobs:
       # No model call here. Everything in this workflow gives the same result every
       # time; the agent's behaviour is checked by the evals in evals.yml.
       # This step catches a missing dependency or a file that does not load.
-      - name: Check that the program loads
-        run: docker compose run --rm -T --no-deps agent python -c "import main"
-
-      # The same image also runs as the server behind the web interface.
       - name: Check that the server loads
         run: docker compose run --rm -T --no-deps agent python -c "import server"
 
@@ -83,10 +80,7 @@ jobs:
       # turn is refused, a conversation belongs to its user, and it is still there for
       # a new server on the same database.
       - name: Check that a turn survives a reader that hangs up, and that conversations are kept
-        run: >-
-          docker compose run --rm -T --no-deps
-          -e DATABASE_URL=postgresql://ticket:ticket@db:5432/ticketdb
-          agent python check_turns.py
+        run: docker compose run --rm -T --no-deps agent python check_turns.py
 
   terraform:
     name: Terraform validate
@@ -155,9 +149,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # The other two images a deploy needs: the agent (it runs as the server behind the
-  # web interface) and the web interface itself. Building the web image is also the
-  # check that the Angular app compiles.
+  # The other two images a deploy needs: the agent and the web interface. Building the
+  # web image is also the check that the Angular app compiles.
   web-images:
     name: Agent and web images
     needs: [api, agent, terraform]

@@ -18,4 +18,6 @@ USER agent
 # Print output straight away instead of buffering it.
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "main.py"]
+# The web server around the agent (server.py). The evals and the checks run in the same
+# image with another command.
+CMD ["python", "server.py"]

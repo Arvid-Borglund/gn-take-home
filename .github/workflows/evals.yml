@@ -60,9 +60,10 @@ jobs:
             echo "present=yes" >> "$GITHUB_OUTPUT"
           fi
 
+      # Only the two the evals need. The evals start the agent themselves, below.
       - name: Start the database and the API
         if: steps.key.outputs.present == 'yes'
-        run: docker compose up -d --build
+        run: docker compose up -d --build db api
 
       # The result table also goes to the summary page of the run.
       - name: Run the evals
