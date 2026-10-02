@@ -36,6 +36,11 @@ class TicketApiClient:
             params = {"status": status}
         return self._send("GET", "/tickets", None, params)
 
+    # GET /tickets/search?q=...&limit=...
+    def search_tickets(self, query: str, limit: int) -> ApiResult:
+        params = {"q": query, "limit": limit}
+        return self._send("GET", "/tickets/search", None, params)
+
     # GET /tickets/{id}
     def get_ticket(self, ticket_id: int) -> ApiResult:
         return self._send("GET", f"/tickets/{ticket_id}", None, None)
