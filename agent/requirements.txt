@@ -8,5 +8,9 @@ python-dotenv==1.2.4
 # Only the web server uses these two (server.py).
 fastapi==0.142.2
 uvicorn==0.54.0
+# Only the web server uses these too: its conversations are stored in PostgreSQL
+# (conversations.py). The first is the graph's checkpointer, the second the driver.
+langgraph-checkpoint-postgres==3.1.2
+psycopg[binary,pool]==3.3.6
 # Only the evals use this one directly (evals/cases.yaml).
 PyYAML==6.0.3

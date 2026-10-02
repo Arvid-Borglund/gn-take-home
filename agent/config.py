@@ -20,6 +20,7 @@ class Settings:
         self.azure_deployment = ""
         self.azure_api_version = ""
         self.ticket_api_url = ""
+        self.database_url = ""
 
 
 def load_settings() -> Settings:
@@ -33,6 +34,9 @@ def load_settings() -> Settings:
     settings.azure_deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "")
     settings.azure_api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "")
     settings.ticket_api_url = os.environ.get("TICKET_API_URL", "http://localhost:8080")
+    # Only the web server uses the database (conversations.py), so it is not required
+    # here: the CLI runs without it.
+    settings.database_url = os.environ.get("DATABASE_URL", "")
 
     missing = []
     if settings.azure_endpoint == "":

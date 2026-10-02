@@ -27,6 +27,7 @@ langchain-openai==1.6.7
 langchain-protocol==0.0.19
 langgraph==1.2.12
 langgraph-checkpoint==4.2.0
+langgraph-checkpoint-postgres==3.1.2
 langgraph-prebuilt==1.1.0
 langgraph-sdk==0.4.5
 langsmith==0.14.2
@@ -37,6 +38,9 @@ opentelemetry-api==1.45.0
 orjson==3.12.0
 ormsgpack==1.12.2
 packaging==26.3
+psycopg==3.3.6
+psycopg-binary==3.3.6
+psycopg-pool==3.3.3
 pycparser==3.0
 pydantic==2.13.5
 pydantic_core==2.46.5

@@ -55,9 +55,14 @@ services:
     profiles: ["web"]
     command: ["python", "server.py"]
     depends_on:
-      - api
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
     environment:
       TICKET_API_URL: http://api:8080
+      # The conversations are stored in the same database as the tickets.
+      DATABASE_URL: postgresql://ticket:ticket@db:5432/ticketdb
       AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
       AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
