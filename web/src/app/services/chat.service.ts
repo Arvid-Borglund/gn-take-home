@@ -42,7 +42,8 @@ export class ChatService {
     return this.http.get<ChatHealth>(`${this.baseUrl}/health`);
   }
 
-  /** The requests from the assignment, with real ticket ids filled in. */
+  /** The seven example requests (the six from the assignment, and a delete), with
+   *  real ticket ids filled in. */
   scenarios(): Observable<string[]> {
     return this.http.get<string[]>(`${this.baseUrl}/scenarios`);
   }
