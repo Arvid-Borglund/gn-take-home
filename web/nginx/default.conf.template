@@ -47,6 +47,15 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
+    # The page itself. It names the script files by a hash of their content, so a new
+    # version of the app has new file names. A browser that kept an old copy of the page
+    # would ask for script files that are no longer there. "expires -1" sends
+    # Cache-Control: no-cache, which means "ask the server before using your copy".
+    # The script files themselves can be kept: a changed file has a new name.
+    location = /index.html {
+        expires -1;
+    }
+
     # The chat: the agent server (agent/server.py).
     #
     # The host name is put in a variable so that nginx looks it up for every request,
