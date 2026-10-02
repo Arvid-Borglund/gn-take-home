@@ -13,8 +13,9 @@
 
 DO $$
 DECLARE
-    first_id BIGINT;   -- the id of the first example ticket
-    new_id   BIGINT;   -- the id of the ticket being built
+    first_id         BIGINT;   -- the id of the first example ticket
+    new_id           BIGINT;   -- the id of the ticket being built
+    first_comment_id BIGINT;   -- the id of the first example comment
 BEGIN
     IF EXISTS (SELECT 1 FROM ticket) THEN
         RETURN;
@@ -28,7 +29,8 @@ BEGIN
     first_id := new_id;
 
     INSERT INTO ticket_comment (ticket_id, version_no, body)
-    VALUES (new_id, 1, 'The account was locked after five wrong passwords.');
+    VALUES (new_id, 1, 'The account was locked after five wrong passwords.')
+    RETURNING comment_id INTO first_comment_id;
 
     UPDATE ticket
     SET status = 'RESOLVED', resolution = 'Unlocked the account and set a new password'
@@ -119,8 +121,8 @@ BEGIN
     INSERT INTO ticket_comment (ticket_id, version_no, body)
     VALUES (new_id, 2, 'Asked the vendor for a quote for twelve users.');
 
-    -- 9. Resolved, reopened, resolved again. Four versions, comments on the first and
-    --    the third.
+    -- 9. Resolved, reopened, resolved again. Four versions, one comment on the first
+    --    and two on the third.
     INSERT INTO ticket (title, description)
     VALUES ('Backup job failed last night',
             'The nightly backup of the file server ended with an error.')
@@ -138,6 +140,9 @@ BEGIN
     INSERT INTO ticket_comment (ticket_id, version_no, body)
     VALUES (new_id, 3, 'It failed again tonight. The disk it writes to is full.');
 
+    INSERT INTO ticket_comment (ticket_id, version_no, body)
+    VALUES (new_id, 3, 'Backups from last year take most of the space. Asked if they can be moved.');
+
     UPDATE ticket
     SET status = 'RESOLVED', resolution = 'Moved old backups away and freed space on the disk'
     WHERE ticket_id = new_id;
@@ -154,8 +159,10 @@ BEGIN
     -- The times. Everything above happened within one moment, so the history is moved
     -- back and spread out: the first ticket was created ten days ago, the next one nine
     -- days ago and so on, with seven hours between the versions of a ticket. A comment
-    -- is placed three hours after the version it was written on. This is the only place
-    -- where ticket_version is written by hand.
+    -- is placed after the version it was written on: the first comment one hour after,
+    -- and each later comment 25 minutes more than the one before it, so that they do
+    -- not all sit at the same distance. This is the only place where ticket_version is
+    -- written by hand.
     UPDATE ticket_version
     SET time_of_version = now()
         - interval '1 day' * (10 - (ticket_id - first_id))
@@ -163,7 +170,9 @@ BEGIN
     WHERE ticket_id >= first_id;
 
     UPDATE ticket_comment c
-    SET time_of_comment = v.time_of_version + interval '3 hours'
+    SET time_of_comment = v.time_of_version
+        + interval '1 hour'
+        + interval '25 minutes' * (c.comment_id - first_comment_id)
     FROM ticket_version v
     WHERE v.ticket_id = c.ticket_id
       AND v.version_no = c.version_no
