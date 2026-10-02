@@ -11,6 +11,7 @@ would run on Azure.
 | 2, bonus | MCP server for the ticketing API. The agent gets its tools from it. | `agent/mcp_server.py`, `agent/mcp_client.py` |
 | 3 | PR review bot: a Python script run by GitHub Actions | `pr_review/`, `.github/workflows/pr-review.yml` |
 | 4 | Terraform skeleton for Azure | `infra/` |
+| 5, bonus | One design decision I would change in production | [Part 5](#part-5-what-i-would-change-in-production) |
 
 Around the four parts there is what it takes to run the system for real: tests of the
 API, evals of the agent, a CI workflow, a deploy to a server with Kamal, Terraform for
@@ -434,6 +435,51 @@ for PostgreSQL in the same file.
 
 `infra/hetzner/` is a second, separate Terraform configuration: the server the API is
 actually deployed on. It is described under [The server as code](#the-server-as-code).
+
+## Part 5: what I would change in production
+
+**The design decision: the login.** The web interface has a user system of its own: a
+table of users with a salted hash each, and basic auth in front of everything. That
+fits one user and a demo. In production I would not have a user system of my own at
+all. The people who would use this already have an account with their employer, and the
+application should accept that account: single sign-on through the identity provider
+the organisation already runs. For an organisation on Azure that is Microsoft Entra ID.
+
+What that changes:
+
+- Nobody gets one more password to remember, and people can start using the
+  application the day it is there, with the login they already use for everything else.
+- There is no user table, no password hashing and no password reset to build, run and
+  keep safe. An account that is closed when someone leaves is closed here too.
+- The application gets to know who the user is from a source it can trust, with the
+  groups that person is in. Today everyone who is logged in can do everything. With
+  the directory behind it, who may delete a ticket can follow from a group there.
+- The slow hash on every request goes away: a signed token is checked without one.
+
+What is already there stays: one way in, the user name passed on to the agent server,
+and conversations that belong to their user. Only where the user name comes from changes.
+
+**Also, in short: the infrastructure.** Everything runs on one machine. In production
+the application would run as several instances behind a load balancer and scale with
+the load, in a cloud or on the organisation's own hardware. One thing in the code has
+to change first: the agent server keeps the task of a running turn in its own memory,
+and with several instances that has to live outside the process.
+
+**Beyond the assignment: an agent that follows the ticket.** The agent here does what it
+is asked, one request at a time, and knows a ticket only by its fields. In real support
+work most of what matters about a ticket is not in its fields. Someone called the
+supplier and spoke to the factory manager, who promised to talk to three people, who
+goes on holiday in two weeks, and whose deputy takes over after that. A person with a
+few hundred tickets does not remember that three weeks later.
+
+I would give every ticket an agent that builds up a memory of what has happened to it:
+who was contacted, what was promised and by when, and who to turn to next. Then anyone
+who is allowed to work on the ticket can start that agent and have the whole background
+at once. The agent can also speak up by itself when a ticket has been open too long,
+with a brief of what has been done, who should be contacted now, and how to reach them.
+The same kind of agent could sit where tickets come from, propose a ticket, and create
+it when the person responsible says yes. After that it can follow the work as an
+observer, or take part in it.
 
 ## Tests and CI
 
