@@ -20,6 +20,11 @@ API_URL = os.environ.get("TICKET_API_URL", "http://localhost:8080")
 # An id far above anything the tests create.
 MISSING_ID = 999999999
 
+# The user the API creates when it starts (SeedUser__Username and SeedUser__Password
+# in compose.yaml).
+LOGIN_USER = os.environ.get("WEB_LOGIN_USER", "demo")
+LOGIN_PASSWORD = os.environ.get("WEB_LOGIN_PASSWORD", "demo")
+
 http = httpx.Client(base_url=API_URL, timeout=10.0)
 
 
@@ -73,6 +78,38 @@ def test_health_answers_200_when_the_database_is_reachable():
 
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
+
+
+# ----- Login check -----
+#
+# The web interface is behind a login when it is deployed. nginx asks this endpoint
+# whether the login in a request is valid; the ticket endpoints themselves ask for none.
+
+def test_login_check_without_a_login_is_401_and_asks_for_one():
+    response = http.get("/auth/check")
+
+    assert response.status_code == 401
+    # The header that makes a browser show its login dialog.
+    assert response.headers["WWW-Authenticate"] == 'Basic realm="Ticket desk"'
+
+
+def test_login_check_with_the_right_password_is_200_and_names_the_user():
+    response = http.get("/auth/check", auth=(LOGIN_USER, LOGIN_PASSWORD))
+
+    assert response.status_code == 200
+    assert response.headers["X-User"] == LOGIN_USER
+
+
+def test_login_check_with_a_wrong_password_is_401():
+    response = http.get("/auth/check", auth=(LOGIN_USER, LOGIN_PASSWORD + "x"))
+
+    assert response.status_code == 401
+
+
+def test_login_check_with_an_unknown_user_is_401():
+    response = http.get("/auth/check", auth=("someone-else", LOGIN_PASSWORD))
+
+    assert response.status_code == 401
 
 
 # ----- Create -----
