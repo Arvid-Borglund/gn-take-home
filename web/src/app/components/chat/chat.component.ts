@@ -28,9 +28,10 @@ const LIST_POLL_INTERVAL_MS = 3000;
  * either way. A page that opens a conversation in the middle of a turn follows it by
  * reading the conversation again every other second (load()).
  *
- * The requests from the assignment can be sent with a click instead of being typed:
- * from the intro of an empty conversation, and after that from the Scenarios menu at
- * the input. Both show the same list (the template scenarioList).
+ * Seven example requests (the six from the assignment, and a delete) can be sent with
+ * a click instead of being typed: from the intro of an empty conversation, and after
+ * that from the Scenarios menu at the input. Both show the same list (the template
+ * scenarioList).
  */
 @Component({
   selector: 'app-chat',
@@ -54,7 +55,7 @@ const LIST_POLL_INTERVAL_MS = 3000;
             through the ticketing API. Ticket numbers in its answers open the ticket next
             to the chat.
           </p>
-          <div class="examples-heading">The requests from the assignment</div>
+          <div class="examples-heading">Example requests</div>
           <ng-container *ngTemplateOutlet="scenarioList"></ng-container>
         </div>
 
@@ -69,7 +70,7 @@ const LIST_POLL_INTERVAL_MS = 3000;
       <div *ngIf="notice" class="notice">{{ notice }}</div>
 
       <div *ngIf="scenarioMenuOpen && canType()" class="scenario-menu">
-        <div class="examples-heading">The requests from the assignment</div>
+        <div class="examples-heading">Example requests</div>
         <ng-container *ngTemplateOutlet="scenarioList"></ng-container>
       </div>
 
@@ -79,7 +80,7 @@ const LIST_POLL_INTERVAL_MS = 3000;
         <button *ngIf="messages.length > 0" type="button" class="scenarios-button"
                 [class.open]="scenarioMenuOpen && canType()"
                 [disabled]="!canType() || scenarios.length === 0"
-                (click)="toggleScenarioMenu()" title="The requests from the assignment">Scenarios</button>
+                (click)="toggleScenarioMenu()" title="Example requests">Scenarios</button>
         <textarea [(ngModel)]="draft" name="draft" rows="1" autocomplete="off"
                   [placeholder]="waitingForConfirmation ? 'Answer the question above first' : 'Type a request'"
                   (keydown.enter)="onEnter($event)" [disabled]="!canType()"></textarea>
@@ -87,7 +88,7 @@ const LIST_POLL_INTERVAL_MS = 3000;
       </form>
     </div>
 
-    <!-- The requests from the assignment as numbered buttons. A click sends the request.
+    <!-- The example requests as numbered buttons. A click sends the request.
          Used in two places above: the intro and the menu at the input. -->
     <ng-template #scenarioList>
       <div class="examples">
@@ -113,7 +114,7 @@ const LIST_POLL_INTERVAL_MS = 3000;
 
     .notice { margin: 0 24px 8px; padding: 8px 12px; border-radius: 8px; background: #FBE6DA; color: #7A2E06; font-size: 13px; }
 
-    .scenario-menu { margin: 0 24px 10px; }
+    .scenario-menu { margin: 0 24px 10px; padding-top: 10px; border-top: 1px solid var(--grey-light); }
 
     .composer { display: flex; gap: 8px; padding: 14px 24px 18px; border-top: 1px solid var(--grey-light); background: var(--cream-light); }
     .composer textarea { flex: 1; resize: none; border: 1px solid var(--grey-light); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 14px; background: #fff; color: var(--ink); }
@@ -140,7 +141,7 @@ export class ChatComponent implements OnInit, AfterViewChecked, OnDestroy {
   waitingForConfirmation = false;
   /** Why the server refused the last request. Shown above the input. */
   notice = '';
-  /** The menu with the requests from the assignment, at the input, is open. */
+  /** The menu with the example requests, at the input, is open. */
   scenarioMenuOpen = false;
 
   private stream?: Subscription;
