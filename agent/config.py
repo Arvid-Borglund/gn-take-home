@@ -21,6 +21,9 @@ class Settings:
         self.azure_api_version = ""
         self.ticket_api_url = ""
         self.database_url = ""
+        self.ollama_base_url = ""   # set when the agent runs on a local model (model.py)
+        self.ollama_model = ""
+        self.model_name = ""        # the model in use, whichever of the two it is
 
 
 def load_settings() -> Settings:
@@ -37,6 +40,19 @@ def load_settings() -> Settings:
     # Only the web server uses the database (conversations.py), so it is not required
     # here: the evals run without it.
     settings.database_url = os.environ.get("DATABASE_URL", "")
+
+    # A local model served by Ollama, in place of Azure OpenAI. When the address is set,
+    # the Azure settings are not needed.
+    settings.ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "")
+    settings.ollama_model = os.environ.get("OLLAMA_MODEL", "")
+
+    if settings.ollama_base_url != "":
+        if settings.ollama_model == "":
+            raise ConfigError("Missing setting: OLLAMA_MODEL. OLLAMA_BASE_URL is set, so the agent needs to know which model to ask for.")
+        settings.model_name = settings.ollama_model
+        return settings
+
+    settings.model_name = settings.azure_deployment
 
     missing = []
     if settings.azure_endpoint == "":

@@ -1,6 +1,8 @@
 # What the agent uses directly. constraints.txt pins everything these pull in.
 langgraph==1.2.12
 langchain-openai==1.6.7
+# Only used when the agent runs on a local model served by Ollama (model.py).
+langchain-ollama==1.1.0
 httpx==0.28.1
 # The official MCP SDK: the server in mcp_server.py and the client in mcp_client.py.
 mcp==2.2.0

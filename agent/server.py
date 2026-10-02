@@ -140,7 +140,7 @@ class ChatServer:
         return {
             "status": status,
             "ticket_api": ticket_api_up,
-            "model": self._settings.azure_deployment,
+            "model": self._settings.model_name,
         }
 
     def scenarios(self) -> list:

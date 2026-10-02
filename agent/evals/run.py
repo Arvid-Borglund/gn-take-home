@@ -395,7 +395,7 @@ async def run_cases(cases: list, llm, tools: list, client: TicketApiClient, argu
             print(f"         answer:   {run.answer[:400]}")
 
     print()
-    print(f"{passed}/{len(cases)} cases passed (model {settings.azure_deployment})")
+    print(f"{passed}/{len(cases)} cases passed (model {settings.model_name})")
 
     if passed == len(cases):
         return 0
