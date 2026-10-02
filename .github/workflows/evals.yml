@@ -15,6 +15,7 @@ on:
       - 'agent/**'
       - 'api/**'
       - 'db/**'
+      - 'embedder/**'
       - 'compose.yaml'
       - '.github/workflows/evals.yml'
   push:
@@ -23,6 +24,7 @@ on:
       - 'agent/**'
       - 'api/**'
       - 'db/**'
+      - 'embedder/**'
       - 'compose.yaml'
       - '.github/workflows/evals.yml'
   workflow_dispatch: {}

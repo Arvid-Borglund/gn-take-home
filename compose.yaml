@@ -25,6 +25,14 @@ services:
   # the API calls it.
   embedder:
     build: ./embedder
+    # The model is loaded before the service answers, which takes a second or two. The
+    # API waits for this check, so that a search right after "up" does not find the
+    # embedder still starting. The image has no curl, so the check is done with Python.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
 
   api:
     build: ./api
@@ -32,7 +40,7 @@ services:
       db:
         condition: service_healthy
       embedder:
-        condition: service_started
+        condition: service_healthy
     environment:
       ConnectionStrings__TicketDb: Host=db;Port=5432;Database=ticketdb;Username=ticket;Password=ticket
       # Inside the compose network the embedding service is reached by its service name.
