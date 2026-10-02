@@ -11,6 +11,7 @@ would run on Azure.
 | 2, bonus | MCP server for the ticketing API. The agent gets its tools from it. | `agent/mcp_server.py`, `agent/mcp_client.py` |
 | 3 | PR review bot: a Python script run by GitHub Actions | `pr_review/`, `.github/workflows/pr-review.yml` |
 | 4 | Terraform skeleton for Azure | `infra/` |
+| 5, bonus | One design decision I would change in production | [Part 5](#part-5-what-i-would-change-in-production) |
 
 Around the four parts there is what it takes to run the system for real: tests of the
 API, evals of the agent, a CI workflow, a deploy to a server with Kamal, Terraform for
@@ -468,6 +469,71 @@ for PostgreSQL in the same file.
 
 `infra/hetzner/` is a second, separate Terraform configuration: the server the API is
 actually deployed on. It is described under [The server as code](#the-server-as-code).
+
+## Part 5: what I would change in production
+
+**The design decision: the login.** The web interface has a user system of its own: a
+table of users with a salted hash each, and basic auth in front of everything. It could
+hold many users, but it is built as a standalone application with accounts of its own.
+A tool like this is normally one of many that a company gives its employees, and it
+should not need a separate account. In production I would not have a user system of my
+own at all. The people who would use this already have an account with their employer,
+and the application should accept that account: single sign-on through the identity
+provider the organisation already runs. For an organisation on Azure that is Microsoft
+Entra ID.
+
+What that changes:
+
+- Nobody gets one more password to remember, and people can start using the
+  application the day it is there, with the login they already use for everything else.
+- There is no user table, no password hashing and no password reset to build, run and
+  keep safe. An account that is closed when someone leaves is closed here too.
+- The application gets to know who the user is from a source it can trust, with the
+  groups that person is in. Today everyone who is logged in can do everything. With
+  the directory behind it, who may delete a ticket can follow from a group there.
+- The slow hash on every request goes away: a signed token is checked without one.
+
+What is already there stays: one way in, the user name passed on to the agent server,
+and conversations that belong to their user. Only where the user name comes from changes.
+
+**Also, in short: the infrastructure.** Everything runs on one machine. In production
+the application would run as several instances behind a load balancer and scale with
+the load, in a cloud or on the organisation's own hardware. One thing in the code has
+to change first: the agent server keeps the task of a running turn in its own memory,
+and with several instances that has to live outside the process.
+
+### Beyond the assignment: agents that follow a ticket from start to finish
+
+This is outside what the assignment asks for, and it is how I imagine it, not something
+I have built. The agent here carries out one request at a time. I would make the whole
+handling of a ticket more agentic than that.
+
+**Where a ticket comes from.** A ticket starts somewhere: in a meeting, in a call with a
+customer, in a report about something that went wrong. I would have an agent present
+there as an observer. When it sees something that should become a ticket, it proposes
+one, and when the person responsible for tickets says yes, the ticket is created.
+
+**While the ticket is being solved.** The agent stays with the ticket. It can sit along
+as an observer while the person responsible works on it, or take a more active part and
+solve it together with that person. Either way it builds up a memory of the ticket:
+every turn the work takes, who was contacted, what was said and what was promised.
+
+An example of what I have in mind. The ticket is about a fault in the supply chain. The
+person responsible calls the supplier, a factory abroad, and speaks to the factory
+manager. The manager is told about the problem and says that he will talk to three
+people at the factory about it. He also says that he goes on holiday on the Friday two
+weeks from now, that it should be solved before then, and that contact during his
+holiday goes through his second in command.
+
+A person who handles hundreds of tickets over several months does not have all of that
+in their head three weeks later. The agent does. When the ticket is flagged as still
+unresolved, the agent tells the person responsible and gives a full brief: what has been
+done on the ticket so far, who should be contacted now, and how to reach them.
+
+**What it comes down to.** Every ticket has an agent of its own, with a memory of that
+ticket and of the turns it has taken. Anyone who is allowed to work on the ticket can
+start that agent and have the full background at once. And the agent can reach out by
+itself to remind people of a ticket that has stopped moving.
 
 ## Tests and CI
 
