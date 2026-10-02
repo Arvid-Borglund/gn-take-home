@@ -16,7 +16,7 @@ import json
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from tools import DELETE_TOOL_NAME
+from graph import DELETE_TOOL_NAME
 
 # How much of a tool result the web interface shows. The model always gets the whole
 # result.
@@ -54,7 +54,7 @@ def shorten(text: str) -> str:
 
 def is_error_result(text: str) -> bool:
     """True when a tool result says that the call failed or was not carried out.
-    The three prefixes are the ones tools.py and graph.py write."""
+    The three prefixes are the ones mcp_server.py and graph.py write."""
     if text.startswith("API ERROR"):
         return True
     if text.startswith("ERROR"):

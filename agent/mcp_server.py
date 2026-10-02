@@ -13,9 +13,8 @@ The transport is stdio: the client starts this file as a subprocess and the two 
 over the subprocess's stdin and stdout. Nothing listens on a port. That is also why
 nothing in this file may print to stdout: stdout carries the protocol.
 
-A tool here does the same three things as a tool in tools.py: it takes the arguments
-the model chose, calls the API through TicketApiClient, and returns a text for the
-model to read (tool_results.py). The same two rules hold:
+A tool does three things: it takes the arguments the model chose, calls the API through
+TicketApiClient, and returns a text for the model to read. Two rules hold:
 
 - A business-rule error is a result, not a crash. A 4xx from the API comes back as a
   tool result with the API's own message as text, and with the result marked as an
@@ -24,6 +23,7 @@ model to read (tool_results.py). The same two rules hold:
   lists the valid statuses: the API owns the rules.
 """
 
+import json
 import os
 from typing import Optional
 
@@ -31,7 +31,6 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
 from api_client import ApiResult, TicketApiClient
-from tool_results import describe_result
 
 # Where the ticket API is. The agent passes the address on when it starts the server.
 TICKET_API_URL = os.environ.get("TICKET_API_URL", "http://localhost:8080")
@@ -45,6 +44,24 @@ mcp = MCPServer(
     instructions="Tools for a support ticketing system: create, list, read, update, comment on and delete tickets.",
     log_level="WARNING",
 )
+
+
+def describe_result(result: ApiResult, text_when_no_body: str) -> str:
+    """Turns an ApiResult into the text the model reads.
+
+    - On success the text is the JSON the API returned.
+    - On a 4xx the text starts with "API ERROR <status>:" followed by the API's own
+      message.
+    - When the API could not be reached at all the text starts with "ERROR:"."""
+    if result.ok:
+        if result.data is None:
+            return text_when_no_body
+        return json.dumps(result.data)
+
+    if result.status_code == 0:
+        return f"ERROR: {result.error}"
+
+    return f"API ERROR {result.status_code}: {result.error}"
 
 
 def to_tool_result(result: ApiResult, text_when_no_body: str) -> CallToolResult:

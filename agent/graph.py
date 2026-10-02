@@ -26,7 +26,10 @@ from langgraph.graph.message import add_messages
 from langgraph.types import interrupt
 
 from prompts import SYSTEM_PROMPT
-from tools import DELETE_TOOL_NAME
+
+# The one tool the graph does not run on the model's word alone: the user is asked
+# first (confirm_delete below). The name is the one the MCP server gives the tool.
+DELETE_TOOL_NAME = "delete_ticket"
 
 # One step is one node run. A normal request takes three (agent, tools, agent). This is
 # the ceiling for a model that keeps calling tools without getting anywhere. Whoever
