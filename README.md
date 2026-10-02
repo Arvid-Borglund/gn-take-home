@@ -57,8 +57,8 @@ their own container.
 
    The web interface is now at http://localhost:8081, and the API at
    http://localhost:8080 with Swagger at http://localhost:8080/swagger. The database
-   starts empty. The first build takes a few minutes, because it installs the Angular
-   toolchain inside the web image.
+   starts with ten example tickets. The first build takes a few minutes, because it
+   installs the Angular toolchain inside the web image.
 
 4. Talk to the agent at http://localhost:8081.
 
@@ -133,6 +133,11 @@ How it is built:
 - The schema is plain SQL and is the source of truth. EF Core maps to it and creates
   nothing. The database also has CHECK constraints for the status rules, as a backstop
   behind the API.
+- A new database gets ten example tickets (`db/init/004_seed.sql`): every status, some
+  with up to four versions, and comments written on different versions. The file
+  inserts and updates `ticket` the way the API does and lets the trigger write the
+  history; the only thing it sets by hand is the times, so that the history is spread
+  over ten days. It does nothing when there is already a ticket.
 
 ## Part 2: the agent
 
@@ -527,7 +532,8 @@ internet -> kamal-proxy (TLS) -> web: nginx, asks for the login -+- the Angular 
 - PostgreSQL runs as its own container on the same server. No port is published: it is
   only reached over Docker's network.
 - **The schema is the files in `db/init/`, the same as locally.** Every statement in
-  them only creates what is missing, and the deploy runs all of them on every deploy.
+  them only creates what is missing (the example tickets are added only when there are
+  no tickets at all), and the deploy runs all of them on every deploy.
   That is how a new table reaches a database that already has data in it. It covers
   additions; changing a column that exists would take a migration tool.
 - Rolling back is deploying an older commit SHA.
