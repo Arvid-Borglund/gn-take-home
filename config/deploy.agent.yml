@@ -3,6 +3,13 @@
 # Used by .github/workflows/deploy.yml:
 #   kamal deploy -c config/deploy.agent.yml --skip-push --version <commit sha>
 #
+# The language model does not run here. The agent calls Ollama at
+# host.docker.internal:11434, which is the server's Docker bridge. A machine with a
+# GPU keeps a reverse SSH tunnel open to that address, so the model itself runs on that
+# machine. If the tunnel is down, the chat answers with the model's error and the rest
+# of the system works as before. Without the two OLLAMA settings below, the agent uses
+# the Azure OpenAI deployment instead.
+#
 # It is not behind kamal-proxy and has no address of its own: the web container's nginx
 # passes
 # /api/chat/ on to it by its network alias. The chat is therefore only reachable
@@ -20,6 +27,9 @@ servers:
     options:
       network-alias: ticketing-agent
       memory: 384m
+      # host.docker.internal is the server itself, as seen from the container: the
+      # address the tunnel to the model listens on.
+      add-host: host.docker.internal:host-gateway
     proxy: false
 
 registry:
@@ -41,6 +51,10 @@ env:
     AZURE_OPENAI_ENDPOINT: https://external-api.openai.azure.com/
     AZURE_OPENAI_DEPLOYMENT: gpt-6-luna-c1
     AZURE_OPENAI_API_VERSION: 2024-12-01-preview
+    # The model the deployed agent uses: Qwen, served by Ollama on the machine at the
+    # other end of the tunnel.
+    OLLAMA_BASE_URL: http://host.docker.internal:11434
+    OLLAMA_MODEL: "qwen3.6:27b"
   secret:
     - AZURE_OPENAI_API_KEY
     # Where the conversations are stored: the same PostgreSQL as the tickets. It holds

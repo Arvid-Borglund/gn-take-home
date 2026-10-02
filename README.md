@@ -21,10 +21,17 @@ The assignment says that a command-line interface to the agent is sufficient. Th
 interface here is a web application instead (`web/`): the steps the agent takes, the
 tickets and their history are easier to follow on a page than in a terminal.
 
-The whole system runs at https://lundona.com, behind a login. The user name and the
-password came with the link to this repository. The agent there calls the model with
-the key from the assignment: when that key is closed the chat answers with the model's
-error, and the rest (the API, the ticket viewer and the history) keeps working.
+**To try it without any setup:** the whole system runs at https://lundona.com, behind a
+login. The user name and the password came with the link to this repository. Nothing
+has to be installed and no API key is needed.
+
+Everything was developed against the Azure OpenAI model from the assignment, and that
+is what the instructions below use. Just before handing in, the deployed agent was
+switched to a model of my own, because the key from the assignment stops working: Qwen
+3.6 (27B), served by Ollama on a machine with an RTX 5090 in my living room. The server
+is at Hetzner in Helsinki and reaches the model through a reverse SSH tunnel. The evals
+pass 14 of 14 with both models. If that machine is off, the chat answers with the
+model's error, and the rest (the API, the ticket viewer and the history) keeps working.
 
 ## Run it
 
@@ -203,6 +210,11 @@ it is what lets the graph stop at the confirmation and continue afterwards.
 reasoning is on, and the API version from the assignment is older than the Responses
 API. The agent therefore sets `reasoning_effort="none"` (see `build_llm` in
 `agent/model.py`).
+
+The agent can also run on a local model served by Ollama: with `OLLAMA_BASE_URL` and
+`OLLAMA_MODEL` set (see `.env.example`), `build_llm` returns that model and the Azure
+settings are not needed. The graph, the tools and the prompt are the same for both.
+The deployed system runs Qwen 3.6 that way.
 
 ## Bonus: the MCP server
 
@@ -482,6 +494,10 @@ tickets must be in when it is done. Some examples:
 The checks are about what the agent did, not how it phrased it. The wording of an answer
 is only checked where something specific has to be in it.
 
+All 14 cases pass with the model from the assignment, and all 14 pass with Qwen 3.6
+(27B) served by Ollama. The same suite is what told whether the local model was good
+enough to put behind the deployed system.
+
 `.github/workflows/evals.yml` runs the evals on pull requests and pushes that touch the
 agent, the API or the schema, and on request. It is a workflow of its own because it
 calls a language model: it costs a little, takes a couple of minutes, and can fail for
@@ -537,6 +553,14 @@ internet -> kamal-proxy (TLS) -> web: nginx, asks for the login -+- the Angular 
   That is how a new table reaches a database that already has data in it. It covers
   additions; changing a column that exists would take a migration tool.
 - Rolling back is deploying an older commit SHA.
+
+- **The model of the deployed agent runs on another machine.** The agent calls Ollama at
+  `host.docker.internal:11434`, which is the server's Docker bridge
+  (`config/deploy.agent.yml`). A machine with a GPU keeps a reverse SSH tunnel open to
+  that address, so nothing on the internet reaches the model, only the containers on
+  the server. The tunnel is not set up by this repository: the server's sshd allows
+  the forward (`GatewayPorts clientspecified`), and the key that opens the tunnel may do
+  nothing else. If the tunnel is down, the chat answers with the model's error.
 
 What has to exist before the first deploy:
 

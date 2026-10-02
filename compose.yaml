@@ -55,6 +55,13 @@ services:
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
       AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
       AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-}
+      # Optional: a local model served by Ollama, in place of Azure OpenAI.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-}
+    # Lets the container reach a program on the machine it runs on, such as Ollama,
+    # under the name host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # The web interface: nginx with the built Angular app. It is the only way to the
   # agent from outside, and it passes the API paths on to the two services above.

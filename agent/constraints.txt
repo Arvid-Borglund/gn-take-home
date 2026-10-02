@@ -23,6 +23,7 @@ jsonpointer==3.1.1
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 langchain-core==1.6.6
+langchain-ollama==1.1.0
 langchain-openai==1.6.7
 langchain-protocol==0.0.19
 langgraph==1.2.12
@@ -33,6 +34,7 @@ langgraph-sdk==0.4.5
 langsmith==0.14.2
 mcp==2.2.0
 mcp-types==2.2.0
+ollama==0.6.2
 openai==3.22.1
 opentelemetry-api==1.45.0
 orjson==3.12.0
