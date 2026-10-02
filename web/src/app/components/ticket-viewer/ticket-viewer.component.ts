@@ -90,11 +90,14 @@ import { TicketTimelineComponent } from './ticket-timeline.component';
     .viewer { width: 44vw; min-width: 420px; max-width: 760px; display: flex; flex-direction: column; background: var(--cream-light); border-left: 1px solid var(--grey-light); }
 
     .tabs { display: flex; flex: none; overflow-x: auto; background: var(--teal-soft); border-bottom: 1px solid var(--grey-light); }
-    .tab { display: flex; align-items: center; gap: 6px; padding: 9px 8px 9px 12px; border-top: 3px solid transparent; border-right: 1px solid var(--grey-light); cursor: pointer; font-size: 13px; max-width: 220px; flex: none; }
+    /* The tabs share the width: a tab is as wide as its title, at most 220px, and gets
+       narrower when there are many, down to 84px. Only the title gives way; the ticket
+       number and the x stay. With more tabs than fit at 84px the row scrolls. */
+    .tab { display: flex; align-items: center; gap: 6px; padding: 9px 8px 9px 12px; border-top: 3px solid transparent; border-right: 1px solid var(--grey-light); cursor: pointer; font-size: 13px; flex: 0 1 auto; min-width: 84px; max-width: 220px; }
     .tab.active { background: var(--cream-light); border-top-color: var(--orange); }
-    .tab-id { font-weight: 700; color: var(--orange-dark); }
-    .tab-title { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .tab-close { background: transparent; border: 0; font-size: 16px; line-height: 1; color: var(--grey); cursor: pointer; padding: 0 4px; }
+    .tab-id { flex: none; font-weight: 700; color: var(--orange-dark); }
+    .tab-title { flex: 1 1 auto; min-width: 0; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tab-close { flex: none; background: transparent; border: 0; font-size: 16px; line-height: 1; color: var(--grey); cursor: pointer; padding: 0 4px; }
     .tab-close:hover { color: var(--ink); }
 
     .content { flex: 1; overflow-y: auto; padding: 20px 24px 28px; }
