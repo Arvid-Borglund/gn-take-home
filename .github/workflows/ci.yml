@@ -73,10 +73,20 @@ jobs:
       - name: Check that a killed MCP server is started again
         run: docker compose run --rm -T --no-deps agent python check_mcp_restart.py
 
-      # The web server with the real graph and a scripted model: a turn must run to
-      # its end when the reader hangs up, and a second message during a turn is refused.
-      - name: Check that a turn survives a reader that hangs up
-        run: docker compose run --rm -T --no-deps agent python check_turns.py
+      # The next check stores its conversations in PostgreSQL, as the web server does.
+      # --wait returns when the database answers.
+      - name: Start the database
+        run: docker compose up -d --build --wait db
+
+      # The web server with the real graph, a scripted model and the real database:
+      # a turn must run to its end when the reader hangs up, a second message during a
+      # turn is refused, a conversation belongs to its user, and it is still there for
+      # a new server on the same database.
+      - name: Check that a turn survives a reader that hangs up, and that conversations are kept
+        run: >-
+          docker compose run --rm -T --no-deps
+          -e DATABASE_URL=postgresql://ticket:ticket@db:5432/ticketdb
+          agent python check_turns.py
 
   terraform:
     name: Terraform validate
