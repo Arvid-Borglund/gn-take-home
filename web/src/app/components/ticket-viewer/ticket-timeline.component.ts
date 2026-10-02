@@ -2,6 +2,14 @@ import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from
 import { CommonModule } from '@angular/common';
 import { TicketComment, TicketSnapshot, TicketVersion } from '../../models/ticket.model';
 
+/** A pin never sits closer to the edges of its section than this, in percent. */
+const FIRST_PIN_POSITION = 8;
+const LAST_PIN_POSITION = 94;
+
+/** The least distance between two pins in a section, in percent of its width. A pin is
+ *  16px wide and a section at least 118px, so at 16 percent two pins do not overlap. */
+const PIN_GAP = 16;
+
 /** A comment placed on the timeline. */
 interface Pin {
   comment: TicketComment;
@@ -21,7 +29,8 @@ interface Section {
  * The version history of a ticket as a timeline. Every version is a section, coloured
  * by the status the ticket had during it. A click on a section shows the ticket as it
  * was in that version. The pins are the comments, each one in the section of the
- * version it was written on, placed by its time.
+ * version it was written on, placed by its time. Pins that would lie on top of each
+ * other are moved apart, in the order the comments were written.
  */
 @Component({
   selector: 'app-ticket-timeline',
@@ -172,6 +181,7 @@ export class TicketTimelineComponent implements OnChanges {
           pins.push({ comment: comment, position: this.positionOf(time, start, end) });
         }
       }
+      this.moveApart(pins);
 
       sections.push({
         version: version,
@@ -190,13 +200,43 @@ export class TicketTimelineComponent implements OnChanges {
     }
 
     let position = ((time - start) / (end - start)) * 100;
-    if (position < 8) {
-      position = 8;
+    if (position < FIRST_PIN_POSITION) {
+      position = FIRST_PIN_POSITION;
     }
-    if (position > 94) {
-      position = 94;
+    if (position > LAST_PIN_POSITION) {
+      position = LAST_PIN_POSITION;
     }
     return position;
+  }
+
+  /**
+   * Comments written close in time would get pins on top of each other, and the one
+   * underneath could not be clicked. The pins of a section, which come in the order
+   * the comments were written, are therefore moved apart until there is a gap between
+   * each two: first every pin to the right of the one before it, then, if that pushed
+   * the last ones past the edge, back to the left from the end. The order is kept.
+   * With more pins than a section has room for, the first ones share the left edge.
+   */
+  private moveApart(pins: Pin[]): void {
+    for (let index = 1; index < pins.length; index++) {
+      const earliest = pins[index - 1].position + PIN_GAP;
+      if (pins[index].position < earliest) {
+        pins[index].position = earliest;
+      }
+    }
+
+    for (let index = pins.length - 1; index >= 0; index--) {
+      let latest = LAST_PIN_POSITION;
+      if (index < pins.length - 1) {
+        latest = pins[index + 1].position - PIN_GAP;
+      }
+      if (pins[index].position > latest) {
+        pins[index].position = latest;
+      }
+      if (pins[index].position < FIRST_PIN_POSITION) {
+        pins[index].position = FIRST_PIN_POSITION;
+      }
+    }
   }
 
   private describeChanges(previous: TicketSnapshot | null, current: TicketSnapshot): string[] {
