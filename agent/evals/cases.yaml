@@ -110,7 +110,7 @@ cases:
   - id: find-by-topic-then-comment
     question: "Add a comment to the ticket about the printer: 'Technician booked for Friday'."
     expect:
-      tools_include: [list_tickets, add_comment]
+      tools_include: [search_tickets, add_comment]
       tools_not: [create_ticket, delete_ticket, update_ticket]
       calls:
         - tool: add_comment
@@ -122,7 +122,7 @@ cases:
   - id: find-by-topic-then-close
     question: "Close the ticket about the flickering monitor."
     expect:
-      tools_include: [list_tickets, update_ticket]
+      tools_include: [search_tickets, update_ticket]
       tools_not: [create_ticket, delete_ticket]
       calls:
         - tool: update_ticket
@@ -131,6 +131,32 @@ cases:
         - id: "{monitor}"
           status: CLOSED
         - id: "{printer}"
+          status: OPEN
+
+  # The words of the question are not in the ticket ("Monitor flickers"): the search
+  # has to go by meaning.
+  - id: find-by-meaning
+    question: "Add a comment to the ticket about the screen that keeps blinking: 'New cable ordered'."
+    expect:
+      tools_include: [search_tickets, add_comment]
+      tools_not: [create_ticket, delete_ticket, update_ticket]
+      calls:
+        - tool: add_comment
+          args: { ticket_id: "{monitor}", body: "New cable ordered" }
+      tickets:
+        - id: "{monitor}"
+          comment: "New cable ordered"
+
+  # No ticket is about that. The agent must say so and change nothing.
+  - id: find-nothing
+    question: "Close the ticket about the coffee machine."
+    expect:
+      tools_include: [search_tickets]
+      tools_not: [create_ticket, delete_ticket, update_ticket, add_comment]
+      tickets:
+        - id: "{printer}"
+          status: OPEN
+        - id: "{monitor}"
           status: OPEN
 
   # ----- Filtering and history -----
