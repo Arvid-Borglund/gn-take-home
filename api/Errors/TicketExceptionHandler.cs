@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace TicketApi.Errors
 {
-    // The one place where business-rule failures become HTTP responses.
+    // The one place where the API's own failures become HTTP responses.
     // ASP.NET's exception middleware (app.UseExceptionHandler() in Program.cs)
     // catches everything thrown during a request and calls TryHandleAsync.
     // The body is RFC 9457 ProblemDetails; clients (the agent) read "detail".
@@ -31,6 +31,11 @@ namespace TicketApi.Errors
             else if (exception is TicketValidationException)
             {
                 statusCode = StatusCodes.Status422UnprocessableEntity;
+            }
+            else if (exception is EmbedderUnavailableException)
+            {
+                // Nothing is wrong with the request: a service the search needs is down.
+                statusCode = StatusCodes.Status503ServiceUnavailable;
             }
             else
             {

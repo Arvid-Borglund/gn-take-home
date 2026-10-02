@@ -26,10 +26,22 @@ builder.Services.AddDbContext<TicketDbContext>(options =>
     options.UseSnakeCaseNamingConvention();
 });
 
-// One TicketService and one UserService per request, each with the request's
-// DbContext injected.
+// One TicketService, one TicketSearchService and one UserService per request, each
+// with the request's DbContext injected.
 builder.Services.AddScoped<TicketService>();
+builder.Services.AddScoped<TicketSearchService>();
 builder.Services.AddScoped<UserService>();
+
+// The embedder service makes the embeddings the search works with. AddHttpClient
+// registers EmbedderClient and gives it an HttpClient with these settings.
+// The address is the setting Embedder:Url (Embedder__Url in the environment).
+string embedderUrl = builder.Configuration["Embedder:Url"];
+builder.Services.AddHttpClient<EmbedderClient>(client =>
+{
+    client.BaseAddress = new Uri(embedderUrl);
+    // Creating a ticket waits for the embedder at most this long.
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
 
 // Every error body is ProblemDetails: business rules via TicketExceptionHandler,
 // empty 4xx responses (unmatched routes) via UseStatusCodePages below.

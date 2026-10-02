@@ -271,3 +271,107 @@ def test_delete_with_an_unknown_id_is_404():
 
     assert response.status_code == 404
     assert response.json()["detail"] == f"Ticket {MISSING_ID} does not exist."
+
+
+# ----- Search -----
+#
+# The search goes by meaning: the API keeps an embedding of every ticket's title and
+# description, and returns the tickets closest to the question. The tests use a ticket
+# about a monitor and questions that share no words with it.
+
+@pytest.fixture
+def monitor_ticket():
+    """A ticket about a flickering monitor, for one test."""
+    response = http.post(
+        "/tickets",
+        json={
+            "title": "Monitor flickers",
+            "description": "The screen on desk 14 flickers every few seconds.",
+        },
+    )
+    assert response.status_code == 201
+    created = response.json()
+
+    yield created
+
+    http.delete(f"/tickets/{created['ticketId']}")
+
+
+def test_search_finds_a_ticket_by_meaning_without_shared_words(monitor_ticket):
+    response = http.get("/tickets/search", params={"q": "the display keeps blinking"})
+
+    assert response.status_code == 200
+    matches = response.json()
+
+    found = None
+    for match in matches:
+        if match["ticketId"] == monitor_ticket["ticketId"]:
+            found = match
+
+    assert found is not None
+    # A match is a ticket as GET /tickets gives it, plus how well it fits.
+    assert found["title"] == "Monitor flickers"
+    assert found["status"] == "OPEN"
+    assert found["match"] >= 0.3
+    assert found["match"] <= 1
+
+
+def test_search_returns_the_best_match_first(monitor_ticket):
+    response = http.get("/tickets/search", params={"q": "the display keeps blinking", "limit": 20})
+
+    assert response.status_code == 200
+    scores = []
+    for match in response.json():
+        scores.append(match["match"])
+
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_search_for_something_else_does_not_return_the_ticket(monitor_ticket):
+    ids = ids_in(http.get("/tickets/search", params={"q": "the coffee machine"}))
+
+    assert monitor_ticket["ticketId"] not in ids
+
+
+def test_search_follows_a_changed_description(monitor_ticket):
+    ticket_id = monitor_ticket["ticketId"]
+
+    response = http.patch(
+        f"/tickets/{ticket_id}",
+        json={"title": "Printer out of toner", "description": "The printer on floor 2 prints blank pages."},
+    )
+    assert response.status_code == 200
+
+    # The ticket is no longer about a monitor, and is found as what it is about now.
+    assert ticket_id not in ids_in(http.get("/tickets/search", params={"q": "the display keeps blinking"}))
+    assert ticket_id in ids_in(http.get("/tickets/search", params={"q": "no ink left in the printer"}))
+
+
+def test_search_does_not_return_a_deleted_ticket(monitor_ticket):
+    ticket_id = monitor_ticket["ticketId"]
+
+    response = http.delete(f"/tickets/{ticket_id}")
+    assert response.status_code == 204
+
+    assert ticket_id not in ids_in(http.get("/tickets/search", params={"q": "the display keeps blinking"}))
+
+
+def test_search_respects_the_limit(monitor_ticket):
+    response = http.get("/tickets/search", params={"q": "the display keeps blinking", "limit": 1})
+
+    assert response.status_code == 200
+    assert len(response.json()) <= 1
+
+
+def test_search_without_a_question_is_422():
+    response = http.get("/tickets/search", params={"q": "  "})
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "The parameter 'q' is required and cannot be empty."
+
+
+def test_search_with_a_limit_out_of_range_is_422_and_names_the_range():
+    response = http.get("/tickets/search", params={"q": "monitor", "limit": 0})
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "'0' is not a valid limit. It must be between 1 and 20."
