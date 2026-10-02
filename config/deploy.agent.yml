@@ -26,8 +26,8 @@ servers:
       - 135.181.92.165
     options:
       network-alias: ticketing-agent
-      # The agent server, the MCP server and the embedding model of the ticket search.
-      memory: 1g
+      # The agent server and the MCP server it starts.
+      memory: 512m
       # host.docker.internal is the server itself, as seen from the container: the
       # address the tunnel to the model listens on.
       add-host: host.docker.internal:host-gateway

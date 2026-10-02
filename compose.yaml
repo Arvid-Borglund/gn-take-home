@@ -20,13 +20,23 @@ services:
       timeout: 2s
       retries: 15
 
+  # The embedding service: it turns text into embeddings for the API's ticket search.
+  # The model is inside the image, so it needs no key. It has no port of its own; only
+  # the API calls it.
+  embedder:
+    build: ./embedder
+
   api:
     build: ./api
     depends_on:
       db:
         condition: service_healthy
+      embedder:
+        condition: service_started
     environment:
       ConnectionStrings__TicketDb: Host=db;Port=5432;Database=ticketdb;Username=ticket;Password=ticket
+      # Inside the compose network the embedding service is reached by its service name.
+      Embedder__Url: http://embedder:8000
       # The user the API creates when it starts, if it does not exist. demo/demo is a
       # local default, like the database password above. It is only asked for when the
       # web interface runs with SITE_PRIVATE=on.
