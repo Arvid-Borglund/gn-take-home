@@ -1,10 +1,12 @@
 # Runs on every pull request and on every push to main.
 #
-#   api        starts the database and the API with compose and runs the API tests
+#   api        starts the database, the embedding service and the API with compose and
+#              runs the API tests
 #   agent      builds the agent image and runs the checks that need no language model
 #   terraform  checks the formatting of infra/ and validates both configurations in it
 #   image      builds the API image; on main it is also pushed to GHCR
-#   web-images builds the agent image and the web image; on main they are pushed too
+#   web-images builds the agent image, the web image and the image of the embedding
+#              service; on main they are pushed too
 #
 # The images are built once per commit on main and tagged with the commit SHA.
 # A deploy never builds anything: it points the server at those tags.
@@ -32,10 +34,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Only the two the tests need. Without the names, compose would also build and
-      # start the agent and the web interface.
-      - name: Start the database and the API
-        run: docker compose up -d --build db api
+      # Only the three the tests need: the API calls the embedding service for its
+      # ticket search. Without the names, compose would also build and start the agent
+      # and the web interface.
+      - name: Start the database, the embedding service and the API
+        run: docker compose up -d --build db embedder api
 
       - name: Run the tests
         run: docker compose run --rm tests
@@ -145,8 +148,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # The other two images a deploy needs: the agent and the web interface. Building the
-  # web image is also the check that the Angular app compiles.
+  # The other three images a deploy needs: the agent, the web interface and the
+  # embedding service. Building the web image is also the check that the Angular app
+  # compiles.
   web-images:
     name: Agent and web images
     needs: [api, agent, terraform]
@@ -170,7 +174,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # The labels match "service" in config/deploy.agent.yml and config/deploy.web.yml.
+      # The labels match "service" in config/deploy.agent.yml, config/deploy.web.yml and
+      # config/deploy.embedder.yml.
       - name: Agent image
         uses: docker/build-push-action@v7
         with:
@@ -196,3 +201,16 @@ jobs:
             service=ticketing-web
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
+
+      - name: Embedder image
+        uses: docker/build-push-action@v7
+        with:
+          context: ./embedder
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ${{ env.IMAGE_BASE }}/embedder:${{ github.sha }}
+            ${{ env.IMAGE_BASE }}/embedder:main
+          labels: |
+            service=ticketing-embedder
+          cache-from: type=gha,scope=embedder
+          cache-to: type=gha,mode=max,scope=embedder
