@@ -10,8 +10,9 @@
 # and deploy.web.yml. The secrets:
 #   SSH_PRIVATE_KEY       on the repository (the backup workflow uses it too)
 #   POSTGRES_PASSWORD     in the GitHub environment "production"
-#   BASIC_AUTH_HTPASSWD   in "production": the logins to the web interface, as
-#                         htpasswd lines (see web/nginx/40-htpasswd.sh)
+#   WEB_LOGIN_USER        in "production": the login to the web interface. The API
+#   WEB_LOGIN_PASSWORD    creates that user when it starts, unless it already exists,
+#                         and stores a salt and a hash of the password
 #   AZURE_OPENAI_API_KEY  on the repository (the PR review bot and the evals use it too)
 # scripts/setup-deploy-access.sh creates the first two.
 
@@ -55,7 +56,8 @@ jobs:
       KAMAL_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
       POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
       AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
-      BASIC_AUTH_HTPASSWD: ${{ secrets.BASIC_AUTH_HTPASSWD }}
+      WEB_LOGIN_USER: ${{ secrets.WEB_LOGIN_USER }}
+      WEB_LOGIN_PASSWORD: ${{ secrets.WEB_LOGIN_PASSWORD }}
     steps:
       - uses: actions/checkout@v7
 
@@ -68,12 +70,13 @@ jobs:
 
       # Fail before any contact with the server if something is missing.
       #
-      # The web interface must never come up without its login: behind it is a chat
-      # where every message is a call to the language model.
-      - name: Check that the logins to the web interface are set
+      # Everything on the site is behind a login, and a login is checked against the
+      # users in the database. Without these two the API would create no user, and on
+      # a new database nobody could log in.
+      - name: Check that the login to the web interface is set
         run: |
-          if [ -z "$BASIC_AUTH_HTPASSWD" ]; then
-            echo "::error::The secret BASIC_AUTH_HTPASSWD is not set in the environment production."
+          if [ -z "$WEB_LOGIN_USER" ] || [ -z "$WEB_LOGIN_PASSWORD" ]; then
+            echo "::error::The secrets WEB_LOGIN_USER and WEB_LOGIN_PASSWORD must both be set in the environment production."
             exit 1
           fi
 
@@ -113,7 +116,7 @@ jobs:
         if: inputs.bootstrap
         run: kamal server bootstrap
 
-      # Starts PostgreSQL. On an empty data directory the image runs the schema file.
+      # Starts PostgreSQL with an empty database. The schema comes in the step below.
       - name: 'Bootstrap: the database'
         if: inputs.bootstrap
         run: kamal accessory boot postgres
@@ -122,6 +125,34 @@ jobs:
 
       - name: Log the server in to the registry
         run: kamal registry login
+
+      # The files in db/init/ only create what is missing, so all of them are run on
+      # every deploy. On the first deploy that makes the whole schema; after that it
+      # adds what is new, and tables that exist are left alone with their rows.
+      #
+      # psql runs inside the database container and reads the file from SSH's input.
+      # It needs no password: it connects over the container's local socket, which
+      # the postgres image trusts.
+      - name: Apply the schema files to the database
+        env:
+          HOST: 135.181.92.165
+          CONTAINER: ticketing-postgres
+        run: |
+          # After a bootstrap the database needs a moment. -h 127.0.0.1 asks over the
+          # network: the image answers there only when its own setup is finished.
+          ssh "root@$HOST" "
+            for ATTEMPT in \$(seq 1 30); do
+              if docker exec $CONTAINER pg_isready -h 127.0.0.1 -U ticket -d ticketdb --quiet; then exit 0; fi
+              sleep 2
+            done
+            echo 'The database does not answer.' >&2
+            exit 1
+          "
+
+          for FILE in db/init/*.sql; do
+            echo "Applying $FILE"
+            ssh "root@$HOST" "docker exec -i $CONTAINER psql -U ticket -d ticketdb -v ON_ERROR_STOP=1 --quiet" < "$FILE"
+          done
 
       # The order is the order they depend on each other: the agent server calls the
       # API, and the web interface passes requests on to both.
@@ -159,3 +190,12 @@ jobs:
             echo "::error::https://lundona.com/ answered $STATUS without a login, expected 401."
             exit 1
           fi
+
+      # The login chain from outside: nginx asks the API, and the API checks the user
+      # in the database. The agent server's own health check is behind the login, so
+      # an answer from it means that the login was accepted.
+      - name: Check that the login works
+        run: |
+          curl --fail --silent --show-error \
+            --user "$WEB_LOGIN_USER:$WEB_LOGIN_PASSWORD" \
+            https://lundona.com/api/chat/health

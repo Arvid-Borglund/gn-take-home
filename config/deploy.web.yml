@@ -4,9 +4,10 @@
 #   kamal deploy -c config/deploy.web.yml --skip-push --version <commit sha>
 #
 # This is the only service behind kamal-proxy, and so the only way in from outside.
-# The proxy terminates TLS; nginx asks for the password (SITE_PRIVATE) and passes the
+# The proxy terminates TLS; nginx asks for the login (SITE_PRIVATE) and passes the
 # API paths on to the ticket API and the agent server, which have no address of their
-# own. Everything a visitor can reach is therefore behind the same login.
+# own. Everything a visitor can reach is therefore behind the same login. nginx does
+# not know the users: it asks the ticket API, which checks them in the database.
 
 service: ticketing-web
 
@@ -26,7 +27,7 @@ proxy:
     - lundona.com
     - www.lundona.com
   app_port: 80
-  # /up in nginx answers 200 without a password. The password-protected pages would
+  # /up in nginx answers 200 without a login. The pages behind the login would
   # answer the proxy's check with 401, and the deploy would never go through.
   healthcheck:
     path: /up
@@ -55,6 +56,3 @@ env:
     # (network-alias in config/deploy.yml and config/deploy.agent.yml).
     API_HOST: ticketing-api
     AGENT_HOST: ticketing-agent
-  secret:
-    # Finished htpasswd lines, one per user. See web/nginx/40-htpasswd.sh.
-    - BASIC_AUTH_HTPASSWD
