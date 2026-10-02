@@ -30,7 +30,7 @@ is what the instructions below use. Just before handing in, the deployed agent w
 switched to a model of my own, because the key from the assignment stops working: Qwen
 3.6 (27B), served by Ollama on a machine with an RTX 5090 in my living room. The server
 is at Hetzner in Helsinki and reaches the model through a reverse SSH tunnel. The evals
-pass 14 of 14 with both models. If that machine is off, the chat answers with the
+pass 16 of 16 with both models. If that machine is off, the chat answers with the
 model's error, and the rest (the API, the ticket viewer and the history) keeps working.
 
 ## Run it
@@ -81,7 +81,7 @@ their own container.
    docker compose run --rm tests
    ```
 
-6. Run the evals (optional): 14 fixed questions through the agent, with fixed
+6. Run the evals (optional): 16 fixed questions through the agent, with fixed
    expectations on what it does. See [Evals](#evals).
 
    ```bash
@@ -158,7 +158,8 @@ The agent is a LangGraph graph with three nodes (`agent/graph.py`). `agent` call
 model with the tools bound. `tools` runs the tool calls the model asked for and hands
 the results back. The two take turns until the model answers the user.
 
-**Tools.** There is one tool per endpoint, seven in total. The agent does not call the
+**Tools.** There is one tool per endpoint, seven in total, and an eighth that finds
+tickets by what they are about (see below). The agent does not call the
 API itself: it gets the tools from an MCP server (`agent/mcp_server.py`), which calls
 the API through a small HTTP client (`agent/api_client.py`). On success a tool returns
 the JSON from the API. How the server and the agent's side of it are built is described
@@ -196,6 +197,26 @@ Update ticket 1001 to 'CLOSED'.
   answer       Ticket 1001 does not exist, so it wasn’t updated. List tickets to find the correct ticket ID.
 ```
 
+**Search by meaning.** "Close the ticket about the screen that keeps blinking" has to
+find a ticket called "Monitor flickers". The tool `search_tickets` does that with
+embeddings (`agent/search.py`): a small language model turns the question and every
+ticket into a list of numbers, and texts that mean the same thing get numbers that lie
+close together, also when they share no words. The tool returns the closest tickets,
+each with how well it matches, and nothing when no ticket is about that. The model is
+all-MiniLM-L6-v2, about 90 MB. It runs on the CPU and is put into the image when the
+image is built, so nothing is fetched when the agent runs. A request for all tickets,
+or all with a status, still goes to `list_tickets`. To try it, ask "Which ticket is
+about people who cannot sign in?".
+
+The search runs in the agent layer. The tool fetches the tickets from the API, embeds
+title and description and ranks them in memory. Every search reads every ticket, so
+this holds for hundreds of tickets, not for a million, and only the agent can use it.
+In production the API would own the search: the embedding is computed when a ticket is
+created or changed, stored in a vector column in PostgreSQL (pgvector) with an index,
+and served by an endpoint of its own. The MCP tool then becomes one more thin call to
+the API, like the other seven. It is built in the agent layer here because that leaves
+the API, the schema and the database image as they were.
+
 **Confirmation before a delete.** Deleting is permanent, so the graph does not run a
 delete on the model's word alone. When the model asks for `delete_ticket`, the `confirm`
 node stops the graph with `interrupt()` and the web interface asks the user, with a
@@ -231,8 +252,9 @@ The four steps of the task:
 1. **The server.** An `MCPServer` from the SDK, run over stdio: the client starts the
    file as a subprocess and the two talk over its stdin and stdout. No port is opened
    and no extra container is needed.
-2. **The tools.** One tool per endpoint, seven in total. Each tool carries the MCP
-   annotations that say what it does to the data: the three reading tools are marked
+2. **The tools.** One tool per endpoint, seven in total, plus `search_tickets`, which
+   ranks the tickets by meaning in the server itself. Each tool carries the MCP
+   annotations that say what it does to the data: the four reading tools are marked
    read-only, and `delete_ticket` is marked destructive.
 3. **The handlers.** A handler calls the API through the HTTP client
    (`agent/api_client.py`) and returns a text for the model. A 4xx from the API becomes
@@ -274,7 +296,7 @@ What the split between the agent and the server means:
   called, and a repeated `create_ticket` would make a second ticket. That call comes
   back as an error, and the next one heals the connection.
 
-**The agent has no tools of its own.** The seven tools are written down in one place,
+**The agent has no tools of its own.** The eight tools are written down in one place,
 the MCP server, and everything the agent does to a ticket goes through it. A check
 without a model, run by CI, kills the server process and checks that the next call
 starts it again, once:
@@ -471,7 +493,7 @@ the published tags of one commit.
 ## Evals
 
 The tests above say whether the API keeps its contract. The evals say whether the agent
-behaves: `agent/evals/cases.yaml` holds 14 fixed questions with fixed expectations, and
+behaves: `agent/evals/cases.yaml` holds 16 fixed questions with fixed expectations, and
 `agent/evals/run.py` sends each one through the real graph, with the real model, the
 MCP server and the real API.
 
@@ -494,7 +516,7 @@ tickets must be in when it is done. Some examples:
 The checks are about what the agent did, not how it phrased it. The wording of an answer
 is only checked where something specific has to be in it.
 
-All 14 cases pass with the model from the assignment, and all 14 pass with Qwen 3.6
+All 16 cases pass with the model from the assignment, and all 16 pass with Qwen 3.6
 (27B) served by Ollama. The same suite is what told whether the local model was good
 enough to put behind the deployed system.
 

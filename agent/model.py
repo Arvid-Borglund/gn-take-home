@@ -19,7 +19,7 @@ def build_llm(settings: Settings):
             # Qwen thinks before it answers unless it is told not to. With tool calls
             # that makes every round slow, and this agent does not need it.
             reasoning=False,
-            # Ollama's own default context is small. The system prompt, the seven tool
+            # Ollama's own default context is small. The system prompt, the tool
             # descriptions, the conversation and the tool results all have to fit.
             num_ctx=32768,
             # How long Ollama keeps the model in memory after a request.

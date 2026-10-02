@@ -7,6 +7,8 @@ httpx==0.28.1
 # The official MCP SDK: the server in mcp_server.py and the client in mcp_client.py.
 mcp==2.2.0
 python-dotenv==1.2.4
+# The embedding model behind search_tickets (search.py). It runs on the CPU.
+fastembed==0.8.1
 # Only the web server uses these two (server.py).
 fastapi==0.142.2
 uvicorn==0.54.0

@@ -31,11 +31,15 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
 from api_client import ApiResult, TicketApiClient
+from search import TicketSearch
 
 # Where the ticket API is. The agent passes the address on when it starts the server.
 TICKET_API_URL = os.environ.get("TICKET_API_URL", "http://localhost:8080")
 
 client = TicketApiClient(TICKET_API_URL)
+
+# Finds tickets by meaning (search.py). Its language model is loaded at the first search.
+search = TicketSearch()
 
 # log_level: the server writes its log to stderr, which ends up in the agent's
 # terminal. Only warnings and errors are worth showing there.
@@ -93,6 +97,24 @@ def list_tickets(status: Optional[str] = None) -> CallToolResult:
     that have that status. The API validates the status value."""
     result = client.list_tickets(status)
     return to_tool_result(result, "[]")
+
+
+# The one tool that is not an endpoint of the API. It gets every ticket from the API and
+# ranks them here by how close they are in meaning to the query (search.py).
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
+def search_tickets(query: str, limit: int = 5) -> CallToolResult:
+    """Find tickets by what they are about. Use it when the user describes a ticket
+    instead of giving its id. query is a few words about the problem, in English, as
+    the tickets are. The search goes by meaning, not by exact words.
+    Returns the matching tickets, the best match first, each with "match": how well
+    it fits, from 0 to 1. An empty list means that no ticket is about that.
+    To list all tickets, or all tickets with a status, use list_tickets instead."""
+    result = client.list_tickets(None)
+    if not result.ok:
+        return to_tool_result(result, "[]")
+
+    matches = search.find(query, result.data, limit)
+    return CallToolResult(content=[TextContent(type="text", text=json.dumps(matches))], is_error=False)
 
 
 @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
