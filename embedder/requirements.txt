@@ -1,0 +1,6 @@
+# What the embedder uses directly. constraints.txt pins everything these pull in.
+fastapi==0.142.2
+uvicorn==0.54.0
+# Runs the embedding model on the CPU (ONNX), without PyTorch.
+fastembed==0.8.1
+numpy==2.5.3

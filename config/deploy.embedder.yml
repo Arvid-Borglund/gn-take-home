@@ -1,0 +1,38 @@
+# Kamal configuration for the embedding service (embedder/: FastAPI around the
+# embedding model).
+#
+# Used by .github/workflows/deploy.yml:
+#   kamal deploy -c config/deploy.embedder.yml --skip-push --version <commit sha>
+#
+# It turns text into embeddings for the ticket search in the API. The model is inside
+# the image, so the service needs no key and no settings.
+#
+# It is not behind kamal-proxy and has no address of its own. Only the API calls it, by
+# its network alias (Embedder__Url in config/deploy.yml). Nothing outside the server
+# can reach it, and the web container's nginx passes nothing on to it.
+
+service: ticketing-embedder
+
+image: arvid-borglund/gn-take-home/embedder
+
+servers:
+  web:
+    hosts:
+      - 135.181.92.165
+    options:
+      network-alias: ticketing-embedder
+      # The web server and the embedding model it keeps in memory.
+      memory: 512m
+    proxy: false
+
+registry:
+  server: ghcr.io
+  username: arvid-borglund
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+builder:
+  arch: amd64
+
+ssh:
+  user: root

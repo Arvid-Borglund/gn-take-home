@@ -1,4 +1,5 @@
-# Deploys the API, the agent server and the web interface to the server with Kamal.
+# Deploys the four services to the server with Kamal: the embedding service, the API,
+# the agent server and the web interface.
 #
 # Started by hand: Actions, Deploy, Run workflow. That click is the approval. Nothing
 # is ever deployed automatically.
@@ -6,8 +7,8 @@
 # A deploy does not build. It takes a commit SHA and points the server at the images CI
 # already pushed for that commit. Rolling back is deploying an older SHA.
 #
-# The settings live in config/: deploy.yml (the API and its database), deploy.agent.yml
-# and deploy.web.yml. The secrets:
+# The settings live in config/: deploy.yml (the API and its database),
+# deploy.embedder.yml, deploy.agent.yml and deploy.web.yml. The secrets:
 #   SSH_PRIVATE_KEY       on the repository (the backup workflow uses it too)
 #   POSTGRES_PASSWORD     in the GitHub environment "production"
 #   WEB_LOGIN_USER        in "production": the login to the web interface. The API
@@ -27,6 +28,11 @@ on:
         type: string
       bootstrap:
         description: 'First deploy to a new server: install Docker and start the database.'
+        required: false
+        type: boolean
+        default: false
+      database_image:
+        description: 'The image of the database changed: replace the database container. The data stays.'
         required: false
         type: boolean
         default: false
@@ -83,7 +89,7 @@ jobs:
       - name: Check that the images exist in GHCR
         run: |
           echo "$KAMAL_REGISTRY_PASSWORD" | docker login ghcr.io -u arvid-borglund --password-stdin
-          for NAME in api agent web; do
+          for NAME in api agent web embedder; do
             IMAGE="ghcr.io/arvid-borglund/gn-take-home/$NAME:$VERSION"
             if ! docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
               echo "::error::$IMAGE does not exist. Wait for the CI run of that commit to finish."
@@ -126,6 +132,14 @@ jobs:
       - name: Log the server in to the registry
         run: kamal registry login
 
+      # Only when the image of the database has changed (accessories in
+      # config/deploy.yml). The data directory is a directory on the server and is
+      # kept; the container is replaced by one with the new image. The step below
+      # waits until the new container answers.
+      - name: Replace the database container
+        if: inputs.database_image
+        run: kamal accessory reboot postgres
+
       # The files in db/init/ only create what is missing, so all of them are run on
       # every deploy. On the first deploy that makes the whole schema; after that it
       # adds what is new, and tables that exist are left alone with their rows.
@@ -154,8 +168,12 @@ jobs:
             ssh "root@$HOST" "docker exec -i $CONTAINER psql -U ticket -d ticketdb -v ON_ERROR_STOP=1 --quiet" < "$FILE"
           done
 
-      # The order is the order they depend on each other: the agent server calls the
-      # API, and the web interface passes requests on to both.
+      # The order is the order they depend on each other: the API calls the embedding
+      # service, the agent server calls the API, and the web interface passes requests
+      # on to the API and the agent server.
+      - name: Deploy the embedding service
+        run: kamal deploy -c config/deploy.embedder.yml --skip-push --version "$VERSION"
+
       - name: Deploy the API
         run: kamal deploy --skip-push --version "$VERSION"
 

@@ -11,10 +11,12 @@ namespace TicketApi.Controllers
     public class TicketsController : ControllerBase
     {
         private readonly TicketService _tickets;
+        private readonly TicketSearchService _search;
 
-        public TicketsController(TicketService tickets)
+        public TicketsController(TicketService tickets, TicketSearchService search)
         {
             _tickets = tickets;
+            _search = search;
         }
 
         // POST /tickets
@@ -32,6 +34,15 @@ namespace TicketApi.Controllers
         {
             List<TicketResponse> tickets = await _tickets.ListAsync(status);
             return Ok(tickets);
+        }
+
+        // GET /tickets/search?q=the+screen+keeps+blinking  (and optionally &limit=5)
+        // Tickets by what they are about, the best match first.
+        [HttpGet("search")]
+        public async Task<ActionResult<List<TicketMatchResponse>>> Search([FromQuery] string q, [FromQuery] int limit = 5)
+        {
+            List<TicketMatchResponse> matches = await _search.SearchAsync(q, limit);
+            return Ok(matches);
         }
 
         // GET /tickets/1

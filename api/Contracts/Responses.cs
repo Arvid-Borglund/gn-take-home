@@ -16,6 +16,13 @@ namespace TicketApi.Contracts
         public int VersionNo { get; set; }
     }
 
+    // A ticket in a search result: every field of TicketResponse, plus how well the
+    // ticket matches the question, from 0 to 1.
+    public class TicketMatchResponse : TicketResponse
+    {
+        public double Match { get; set; }
+    }
+
     public class TicketDetailResponse
     {
         public TicketResponse Ticket { get; set; }

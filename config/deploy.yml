@@ -1,6 +1,6 @@
 # Kamal configuration: how the API and its database run on the server.
-# The agent server and the web interface have their own files next to this one
-# (deploy.agent.yml, deploy.web.yml).
+# The embedding service, the agent server and the web interface have their own files
+# next to this one (deploy.embedder.yml, deploy.agent.yml, deploy.web.yml).
 #
 # Used by .github/workflows/deploy.yml:
 #   kamal deploy --skip-push --version <commit sha>
@@ -41,6 +41,10 @@ ssh:
   user: root
 
 env:
+  clear:
+    # The embedding service by its network alias (config/deploy.embedder.yml). The
+    # ticket search calls it.
+    Embedder__Url: http://ticketing-embedder:8000
   secret:
     # ASP.NET reads this as ConnectionStrings:TicketDb. Put together in .kamal/secrets.
     - ConnectionStrings__TicketDb
@@ -57,7 +61,9 @@ env:
 accessories:
   postgres:
     service: ticketing-postgres
-    image: postgres:16
+    # PostgreSQL 16 with the pgvector extension, which the ticket search needs. The
+    # same Debian release as the plain postgres:16 image the data was created with.
+    image: pgvector/pgvector:pg16-trixie
     host: 135.181.92.165
     options:
       memory: 512m
