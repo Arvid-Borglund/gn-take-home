@@ -1,22 +1,22 @@
 # Ticketing API, GenAI agent, PR review bot and infrastructure
 
-A support ticketing API with a database, an LLM agent that operates it from the command
-line, a GitHub Action that reviews pull requests with the same LLM, and a Terraform
-description of how the API would run on Azure.
+A support ticketing API with a database, an LLM agent that operates it, from the command
+line or in the browser, a GitHub Action that reviews pull requests with the same LLM, and
+a Terraform description of how the API would run on Azure.
 
 | Part | What | Where |
 |---|---|---|
 | 1 | Ticketing API: ASP.NET Core and EF Core on PostgreSQL | `api/`, `db/` |
-| 2 | GenAI agent: LangGraph in Python, with a command-line interface | `agent/` |
+| 2 | GenAI agent: LangGraph in Python, with a command-line interface and a web interface | `agent/`, `web/` |
 | 2, bonus | MCP server for the ticketing API. The agent gets its tools from it. | `agent/mcp_server.py`, `agent/mcp_client.py` |
 | 3 | PR review bot: a Python script run by GitHub Actions | `pr_review/`, `.github/workflows/pr-review.yml` |
 | 4 | Terraform skeleton for Azure | `infra/` |
 
 Around the four parts there is what it takes to run the system for real: tests of the
 API, evals of the agent, a CI workflow, a deploy to a server with Kamal, Terraform for
-that server with remote state, and a nightly database backup. There is also a web
-interface to the agent (`web/`), next to the command line the assignment asks for. Each
-has its own section below.
+that server with remote state, and a nightly database backup. The agent has two
+interfaces: the command line, which the assignment says is sufficient, and a web
+interface (`web/`). Each has its own section below.
 
 The whole system runs at https://lundona.com, behind a login. The user name and the
 password came with the link to this repository. The agent there calls the model with
@@ -54,7 +54,7 @@ has to be installed: the database, the API and the agent each run in their own c
    The API is now at http://localhost:8080, with Swagger at http://localhost:8080/swagger.
    The database starts empty.
 
-4. Run the agent.
+4. Talk to the agent in the terminal.
 
    ```bash
    docker compose run --rm agent
@@ -78,21 +78,23 @@ has to be installed: the database, the API and the agent each run in their own c
    docker compose run --rm agent python main.py --demo --direct
    ```
 
-5. Run the API tests (optional).
-
-   ```bash
-   docker compose run --rm tests
-   ```
-
-6. Start the web interface (optional).
+5. Or talk to it in the browser.
 
    ```bash
    docker compose --profile web up -d --build
    ```
 
-   It is at http://localhost:8081. The first build takes a few minutes, because it
-   installs the Angular toolchain inside the image. See
+   The web interface is at http://localhost:8081. It is the same agent as in the
+   terminal, with the scenarios from the assignment one click each. The command also
+   starts the database and the API, so it works without step 3. The first build takes a
+   few minutes, because it installs the Angular toolchain inside the image. See
    [The web interface](#the-web-interface).
+
+6. Run the API tests (optional).
+
+   ```bash
+   docker compose run --rm tests
+   ```
 
 To stop everything and remove the database volume:
 
@@ -309,9 +311,9 @@ docker compose run --rm -T agent python mcp_server.py
 
 ## The web interface
 
-The assignment asks for a command line, and that is the main way in. The web interface
-is the same agent behind a second front: the graph, the tools and the prompt are not
-changed for it.
+The assignment says that a command line is sufficient as the interface, and there is
+one. The web interface is the same agent behind a second front: the graph, the tools
+and the prompt are not changed for it.
 
 ```
 browser -> nginx (web/) -+- /              the Angular app
