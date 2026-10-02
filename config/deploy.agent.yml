@@ -45,3 +45,6 @@ env:
     AZURE_OPENAI_API_VERSION: 2024-12-01-preview
   secret:
     - AZURE_OPENAI_API_KEY
+    # Where the conversations are stored: the same PostgreSQL as the tickets. It holds
+    # the database password, so it is put together in .kamal/secrets.
+    - DATABASE_URL

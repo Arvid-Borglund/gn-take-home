@@ -67,7 +67,9 @@ import { TicketOpenService } from '../../services/ticket-open.service';
     .bubble { padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
     .msg-user .bubble { background: var(--teal); color: var(--cream-light); border-bottom-right-radius: 4px; }
     .msg-assistant .bubble { background: var(--cream-light); color: var(--ink); border: 1px solid var(--grey-light); border-bottom-left-radius: 4px; }
-    .bubble.error { background: #FBE6DA; border-color: var(--orange); color: #7A2E06; }
+    /* ".msg" in front on purpose: without it the rule above is the more specific one,
+       and an error would look like an ordinary answer. */
+    .msg .bubble.error { background: #FBE6DA; border-color: var(--orange); color: #7A2E06; }
 
     .ticket-link { color: var(--orange-dark); font-weight: 600; text-decoration: none; border-bottom: 1px dashed var(--orange-dark); }
     .ticket-link:hover { color: var(--teal); border-bottom-color: var(--teal); }

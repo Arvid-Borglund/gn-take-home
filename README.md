@@ -199,9 +199,10 @@ delete on the model's word alone. When the model asks for `delete_ticket`, the `
 node stops the graph with `interrupt()` and the CLI asks the user. The graph continues
 with the answer; a delete that was not confirmed is not run, and the model is told so.
 
-**Memory.** The graph is compiled with an in-memory checkpointer. It keeps the
-conversation between turns ("now close that ticket" works), and it is what lets the
-graph stop at the confirmation and continue afterwards.
+**Memory.** The graph is compiled with a checkpointer: in memory for the command line,
+in PostgreSQL for the web interface. It keeps the conversation between turns ("now
+close that ticket" works), and it is what lets the graph stop at the confirmation and
+continue afterwards.
 
 **The model.** This deployment rejects tool calls on the chat completions endpoint while
 reasoning is on, and the API version from the assignment is older than the Responses
@@ -347,8 +348,8 @@ How it is built:
   the graph could be stopped after the model has asked for a tool and before the tool
   has answered, and the model refuses to continue a conversation that ends that way.
   A conversation runs one turn at a time: a message that arrives while a turn is
-  running gets a 409. `agent/check_turns.py` checks this with the real graph and a
-  scripted model, and CI runs it. A page that opens a conversation in the middle of a
+  running gets a 409. `agent/check_turns.py` checks this with the real graph, a
+  scripted model and a real database, and CI runs it. A page that opens a conversation in the middle of a
   turn locks the input and reads the conversation again every other second until the
   turn is over, so the reply is seen growing there too. A 409 is shown above the input,
   with the text that was typed still in it.
@@ -358,9 +359,22 @@ How it is built:
 - **A link is never taken from the model's text.** A ticket number becomes a link only
   when a tool call in the same turn was about that ticket and the API did not answer
   that it is missing (`agent/transcript.py`). A number the model made up stays text.
-- **The conversations live in the memory of the server process**, the list of them in
-  `server.py` and their messages in the graph's checkpointer. They survive a reload of
-  the page, not a restart of the container.
+- **The conversations are stored in PostgreSQL**, in the same database as the tickets
+  (`agent/conversations.py`). The list of them is the table `conversation`
+  (`db/init/003_conversations.sql`), one row per conversation with the user it belongs
+  to. Their messages are kept by the graph's checkpointer, which in the web server is
+  LangGraph's PostgreSQL checkpointer; it creates its own tables when the server
+  starts. A conversation is therefore still there after a restart of the container,
+  including a question before a delete that has not been answered yet. The command
+  line and the evals keep their state in memory, as before.
+- **A conversation belongs to the user who started it.** nginx does the login and puts
+  the login name in the header `X-User` on what it passes on to the agent server.
+  Listing, reading, writing and deleting only see the user's own conversations; someone
+  else's conversation is a 404. Without a login in front (the local setup) everything
+  belongs to one user, `local`.
+- One thing is still only in the memory of the process: the task that runs a turn. A
+  turn that is running when the container is restarted is not continued, and its
+  conversation can be left ending in a tool call without a result.
 - `web/` is an Angular app. Its image builds it with Node and serves the result with
   nginx; Node is not in the final image.
 
@@ -393,7 +407,7 @@ browser -> nginx: is this request logged in? -> GET /auth/check on the API -> ap
   The database, and so every backup of it, holds the salt and the hash only.
 - **nginx tells the agent server who is logged in**, in the header `X-User`. The value
   comes from the API's answer to the check, and a header with that name sent by the
-  browser is dropped.
+  browser is dropped. It is what makes a conversation belong to its user.
 - **Every request pays for one hash**, about a tenth of a second on the server,
   because basic auth has no session: the password comes with every request and is
   checked every time. A session after one login would take that cost away and bring
@@ -463,7 +477,7 @@ tested the same way: no login, the right one, a wrong password and an unknown us
 | Job | What it does |
 |---|---|
 | API tests | Starts the database and the API with the same compose command as above, and runs the tests. |
-| Agent image | Builds the agent image, checks that the program and the server load, checks that the MCP server offers the same tools as the direct ones, checks that a killed MCP server is started again, and checks that a turn in the web server survives a reader that hangs up. It makes no model call; the evals below do that, in a workflow of their own. |
+| Agent image | Builds the agent image, checks that the program and the server load, checks that the MCP server offers the same tools as the direct ones, checks that a killed MCP server is started again, and checks, against a real database, that a turn in the web server survives a reader that hangs up and that a conversation is kept for its user. It makes no model call; the evals below do that, in a workflow of their own. |
 | Terraform validate | `terraform fmt -check`, `init` and `validate` on `infra/`. |
 | API image | Builds the API image. On main it is pushed to the GitHub container registry, tagged with the commit SHA. |
 | Agent and web images | Builds the agent image and the web image, which is also the check that the Angular app compiles. On main they are pushed like the API image. |

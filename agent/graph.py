@@ -10,10 +10,11 @@
 - tools runs the tool calls and adds one ToolMessage per call. A delete that was not
   confirmed is not run; the model is told so instead.
 
-The graph is compiled with a checkpointer that keeps the state in memory. It does two
-jobs. It remembers the conversation between turns: the same thread_id means the same
-conversation. And it is what makes interrupt() possible: the state is saved when the
-graph stops, so the graph can continue from the same place when the answer comes.
+The graph is compiled with a checkpointer that keeps the state: in memory for the CLI,
+in the database for the web server. It does two jobs. It remembers the conversation
+between turns: the same thread_id means the same conversation. And it is what makes
+interrupt() possible: the state is saved when the graph stops, so the graph can continue
+from the same place when the answer comes.
 """
 
 from typing import Annotated, TypedDict
@@ -121,7 +122,13 @@ class TicketAgent:
 
     # ----- Wiring -----
 
-    def build(self):
+    def build(self, checkpointer=None):
+        """Compiles the graph. Without a checkpointer the state is kept in memory,
+        which is what the CLI and the evals want. The web server passes one that keeps
+        the state in the database (conversations.py)."""
+        if checkpointer is None:
+            checkpointer = InMemorySaver()
+
         graph = StateGraph(AgentState)
 
         graph.add_node("agent", self.call_model)
@@ -137,4 +144,4 @@ class TicketAgent:
         graph.add_edge("confirm", "tools")
         graph.add_edge("tools", "agent")
 
-        return graph.compile(checkpointer=InMemorySaver())
+        return graph.compile(checkpointer=checkpointer)
